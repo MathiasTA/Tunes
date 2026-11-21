@@ -3,8 +3,10 @@ on:
   push:
     branches: [diagnostics]
 jobs:
-  diag:
-    runs-on: ubuntu-latest
+  swift:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - run: python3 diag/yt.py
+      - run: sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
+      - working-directory: diag/ytkit
+        run: swift run -c release Diag 2>&1 | grep -E "SEARCH|STREAMS|DOWNLOAD|error" | head -40
