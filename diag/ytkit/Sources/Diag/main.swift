@@ -63,7 +63,11 @@ enum YouTubeSearch {
     /// Walks the whole response, so small layout changes on YouTube's side don't break it.
     private static func collect(_ node: Any, into out: inout [VideoCandidate]) {
         if let dict = node as? [String: Any] {
-            if let r = dict["videoRenderer"] as? [String: Any], let c = candidate(r) { out.append(c) }
+            if let r = dict["videoRenderer"] as? [String: Any] {
+                let vid = r["videoId"]
+                print("HIT videoId type=\(type(of: vid as Any)) value=\(String(describing: vid)) asString=\(String(describing: vid as? String)) cand=\(String(describing: candidate(r)))")
+                if let c = candidate(r) { out.append(c) }
+            }
             if let order = dict["contents"] as? [Any] {
                 for v in order { collect(v, into: &out) }
             }
