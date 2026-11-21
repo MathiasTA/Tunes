@@ -17,12 +17,13 @@ struct MatchResult {
 }
 
 enum YouTubeError: LocalizedError {
-    case noResults, http(Int), noAudio, noVideo, empty, badLink
+    case noResults, http(Int), noAudio, noVideo, empty, badLink, extraction(String)
     var errorDescription: String? {
         switch self {
-        case .noResults: "Couldn't find this song on YouTube."
-        case .http(let code): "YouTube didn't answer (error \(code))."
-        case .noAudio: "No playable audio found for this video."
+        case .noResults: "Search: YouTube had no matching videos."
+        case .http(let code): "Download: YouTube refused the request (error \(code))."
+        case .noAudio: "Download: found the video, but it had no audio Tunes can play."
+        case .extraction(let detail): "Download: found the video, but couldn't get its audio (\(detail))."
         case .noVideo: "No playable video found."
         case .empty: "The download came back empty."
         case .badLink: "That doesn't look like a YouTube link."
@@ -49,13 +50,8 @@ enum YouTubeSearch {
         if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw YouTubeError.http(http.statusCode)
         }
-        let raw = String(decoding: data, as: UTF8.self)
-        print("RAW status \((resp as? HTTPURLResponse)?.statusCode ?? 0) bytes \(data.count) videoRenderer=\(raw.components(separatedBy: "videoRenderer").count - 1) head=\(raw.prefix(300))")
         var found: [VideoCandidate] = []
-        let obj = try JSONSerialization.jsonObject(with: data)
-        print("WALK found videoRenderer dicts: \(debugWalk(obj))")
-        collect(obj, into: &found)
-        print("COLLECT found \(found.count)")
+        collect(try JSONSerialization.jsonObject(with: data), into: &found)
         var seen = Set<String>()
         return found.filter { seen.insert($0.id).inserted }
     }
@@ -63,24 +59,13 @@ enum YouTubeSearch {
     /// Walks the whole response, so small layout changes on YouTube's side don't break it.
     private static func collect(_ node: Any, into out: inout [VideoCandidate]) {
         if let dict = node as? [String: Any] {
-            if let r = dict["videoRenderer"] as? [String: Any] {
-                let vid = r["videoId"]
-                print("HIT videoId type=\(type(of: vid as Any)) value=\(String(describing: vid)) asString=\(String(describing: vid as? String)) cand=\(String(describing: candidate(r)))")
-                if let c = candidate(r) { out.append(c) }
-            }
-            if let order = dict["contents"] as? [Any] {
-                for v in order { collect(v, into: &out) }
-            }
+            if let r = dict["videoRenderer"] as? [String: Any], let c = candidate(r) { out.append(c) }
+            // Visit "contents" first (it's where search results live, in page order), whether it's a list or a single block.
+            if let contents = dict["contents"] { collect(contents, into: &out) }
             for (k, v) in dict where k != "videoRenderer" && k != "contents" { collect(v, into: &out) }
         } else if let array = node as? [Any] {
             for v in array { collect(v, into: &out) }
         }
-    }
-
-    static func debugWalk(_ node: Any, depth: Int = 0) -> Int {
-        if let d = node as? [String: Any] { return (d["videoRenderer"] != nil ? 1 : 0) + d.values.reduce(0) { $0 + debugWalk($1, depth: depth + 1) } }
-        if let a = node as? [Any] { return a.reduce(0) { $0 + debugWalk($1, depth: depth + 1) } }
-        return 0
     }
 
     private static func candidate(_ r: [String: Any]) -> VideoCandidate? {
@@ -118,11 +103,26 @@ enum YouTubeSearch {
 @main
 struct Diag {
     static func main() async {
+        var firstID = "HfmWPfqyYyY"
         for q in ["Tobias Rahim - Stor Mand", "Taylor Swift - The Fate of Ophelia"] {
             do {
                 let r = try await YouTubeSearch.search(q)
+                if let f = r.first, q.hasPrefix("Tobias") { firstID = f.id }
                 print("SEARCH \(q): \(r.count) results; first: \(r.prefix(3).map { "\($0.id) \($0.title) | \($0.channel) | \($0.duration ?? -1)" })")
             } catch { print("SEARCH \(q) ERROR: \(error)") }
+        }
+        for (label, methods) in [("local", [YouTube.ExtractionMethod.local]), ("remote", [.remote]), ("both", [.local, .remote])] {
+            do {
+                let streams = try await YouTube(videoID: firstID, methods: methods).streams
+                let audio = streams.filterAudioOnly()
+                print("STREAMS \(label): total \(streams.count), audio \(audio.count), m4a \(audio.filter { $0.fileExtension == .m4a }.count)")
+                if let s = audio.filter({ $0.fileExtension == .m4a }).highestAudioBitrateStream() {
+                    var req = URLRequest(url: s.url)
+                    req.setValue("bytes=0-999999", forHTTPHeaderField: "Range")
+                    let (data, resp) = try await URLSession.shared.data(for: req)
+                    print("DOWNLOAD \(label): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0), \(data.count) bytes")
+                }
+            } catch { print("STREAMS \(label) ERROR: \(error)") }
         }
     }
 }
