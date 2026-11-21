@@ -1,51 +1,51 @@
 # Tunes
 
-A personal music app for iPhone. Search any song or artist, play previews, download songs, and keep every download linked to its real artist and album, so your stats and Wrapped are accurate.
+A personal music app for iPhone. Search for any song or artist, play previews, and download songs to listen to offline. Every download stays linked to its real artist and album, so your listening stats and your Wrapped are accurate.
 
-No server and no Mac needed. GitHub builds the app, and SideStore installs it on your iPhone.
+**To install it, see [INSTALL.md](INSTALL.md).**
 
-## Getting the app
+## What it does
 
-1. Push this folder to a GitHub repository (public is fine; there are no secrets in it).
-2. Open **Actions → Build IPA**. It runs on every push, and you can also start it by hand with **Run workflow**. It takes about 10 minutes.
-3. When it's green, open **Releases** and download `Tunes.ipa` on your iPhone.
-4. In SideStore, tap **My Apps → +** and pick `Tunes.ipa`.
-
-A failed build doesn't cost a sideload slot. Only installing in SideStore counts. If a build fails, the error list is under the failed step's **Errors** group.
-
-### Updating
-
-Push a change, wait for the new release, and install the new `Tunes.ipa` over the old one in SideStore. Your music, playlists and stats stay.
+- **Search and download** songs, albums and artists. Downloads play offline.
+- **Home** with charts, trending songs, new releases and your own listening, which you can rearrange.
+- **Playlists:** your own, ones imported from Spotify, auto playlists that update themselves, and country and genre charts.
+- **Player** with queue, shuffle, repeat, sleep timer, synced lyrics, AirPlay and Bluetooth, an equalizer, volume leveling, gapless playback and crossfade.
+- **Artist pages** with popular songs, the full discography, similar artists, upcoming shows and a bio.
+- **Stats and Wrapped:** listening time, top artists and songs, and an animated Wrapped with a shareable card.
+- **Your own files:** import audio files from your phone and link them to the real artist.
+- **Backups** to iCloud Drive or your iPhone, and import of your Spotify listening history.
+- **Looks:** themes (Dark, Black, Light, Auto), accent colors, 12 app icons, and more.
 
 ## Where things come from
 
 | What | Source |
 |---|---|
-| Songs, artists, albums, charts, covers | Deezer public API (no key) |
-| Chart fallback | Apple Music RSS |
-| Audio and video | YouTube, through YouTubeKit, on the phone |
+| Songs, artists, albums, charts and covers | Deezer's public catalog |
+| Audio and music videos | YouTube |
 | Lyrics | LRCLIB |
 | Artist bios | Wikipedia |
-| Shows near you | Ticketmaster Discovery API. Add your own key in Settings → Connections; it never goes in this repo |
-| Share links | song.link |
+| Upcoming shows | Ticketmaster (optional, needs your own free key) |
+
+Nothing is sent to any server of ours. There isn't one. Everything runs on your iPhone.
 
 ## Good to know
 
-- **Discord and Last.fm** appear in Connections as "coming later". They need a sign-in flow that isn't in this version.
-- **Google Home / Nest speakers**: pair them over Bluetooth in the Google Home app first. Tunes plays to Bluetooth and AirPlay devices, but not Google Cast.
-- **Videos** stream at standard quality (about 360p) and are never saved.
-- **SideStore** apps need refreshing every 7 days, which SideStore does from the phone.
-- If YouTube changes something and downloads stop working, turn on **Settings → Advanced → Backup download method**, or update YouTubeKit by bumping its version in `ios/project.yml`.
+- Tunes is a personal project, not on the App Store, and it comes with no guarantees.
+- Downloads depend on YouTube. If YouTube changes something, downloads can stop working until the app is updated.
+- Music videos stream in standard quality and aren't saved.
+- Google Home and Nest speakers work over Bluetooth after you pair them in the Google Home app.
 
-## Project layout
+## For developers
+
+The app is SwiftUI (iOS 17+). The Xcode project is generated with XcodeGen, and GitHub Actions builds an unsigned `.ipa` on every push to `main`. You can find it under Releases.
 
 ```
-ios/project.yml          XcodeGen spec (the Xcode project is generated in CI)
-ios/Tunes/App            App entry, root view, navigation
-ios/Tunes/Core           Models, settings, storage, network status
-ios/Tunes/Services       Deezer, YouTube, lyrics, charts, Spotify import, audio analysis
-ios/Tunes/Stores         Library, playlists, stats, backups
-ios/Tunes/Playback       Audio engine (gapless, crossfade, EQ), player, Wrapped audio
-ios/Tunes/UI             Every screen
-ios/Tunes/Assets.xcassets App icons (12) and colors
+ios/project.yml            XcodeGen spec
+ios/Tunes/App              App entry, root view, navigation
+ios/Tunes/Core             Models, settings, storage, network status
+ios/Tunes/Services         Catalog, YouTube, lyrics, charts, imports, audio analysis
+ios/Tunes/Stores           Library, playlists, stats, backups
+ios/Tunes/Playback         Audio engine (gapless, crossfade, EQ) and player
+ios/Tunes/UI               Every screen
+ios/Tunes/Assets.xcassets  App icons and colors
 ```
