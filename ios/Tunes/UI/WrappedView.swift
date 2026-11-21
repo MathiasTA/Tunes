@@ -48,8 +48,9 @@ struct WrappedData {
         topSongs = stats.topSongs(recs, limit: 20)
         genres = stats.topGenres(recs, limit: 5)
         biggest = stats.biggestDay(recs)
-        hourly = stats.hourly(recs)
-        peakHour = hourly.indices.max { hourly[$0] < hourly[$1] } ?? 20
+        let hours = stats.hourly(recs)
+        hourly = hours
+        peakHour = hours.indices.max { hours[$0] < hours[$1] } ?? 20
         streak = stats.longestStreak(recs)
 
         // Artists first heard inside the period (for all time: in the last 90 days).
