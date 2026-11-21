@@ -1,0 +1,68 @@
+# Builds an unsigned Tunes.ipa on a GitHub Mac and publishes it as a release.
+# SideStore signs it with your Apple ID when you install it on the iPhone.
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          brew install xcodegen
+          xcodegen
+
+      - name: Build (unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Tunes.xcodeproj \
+            -scheme Tunes \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | grep -E "error:|warning: unre|BUILD" || true
+          if ! grep -q "BUILD SUCCEEDED" build.log; then
+            echo "::group::Errors"
+            grep -E "error:" build.log | sort -u | head -150
+            echo "::endgroup::"
+            exit 1
+          fi
+
+      - name: Package Tunes.ipa
+        run: |
+          mkdir -p Payload
+          cp -R ios/build/Build/Products/Release-iphoneos/Tunes.app Payload/
+          zip -qry Tunes.ipa Payload
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Tunes build ${{ github.run_number }}
+          body: "Install on iPhone: open Tunes.ipa in SideStore."
+          files: Tunes.ipa
+          make_latest: true

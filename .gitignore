@@ -1,0 +1,5 @@
+ios/Tunes.xcodeproj
+ios/build
+*.ipa
+Payload
+.DS_Store
