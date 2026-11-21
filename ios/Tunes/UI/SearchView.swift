@@ -1,13 +1,40 @@
 import SwiftUI
 
+/// Remembers recent searches (shared by every search field in the app).
+enum SearchHistory {
+    static let key = "recentSearches"
+    static func remember(_ q: String) {
+        let t = q.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        let old = (UserDefaults.standard.string(forKey: key) ?? "").split(separator: "\n").map(String.init)
+        let list = [t] + old.filter { $0.caseInsensitiveCompare(t) != .orderedSame }
+        UserDefaults.standard.set(list.prefix(8).joined(separator: "\n"), forKey: key)
+    }
+}
+
+/// Search pushed as its own page (kept for links into search from elsewhere).
 struct SearchView: View {
+    @State private var query = ""
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let offline = app.prefs.data.offline || !app.network.isOnline
+        SearchResultsList(query: $query)
+            .navigationTitle("Search")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: offline ? "Your downloads" : "Artists, songs, albums")
+            .onSubmit(of: .search) { SearchHistory.remember(query) }
+    }
+}
+
+/// The results part of search: recent searches, library matches and catalog results.
+struct SearchResultsList: View {
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
-    @State private var query = ""
+    @Binding var query: String
     @State private var results = Catalog.SearchResults()
     @State private var loading = false
     @State private var error: String?
-    @AppStorage("recentSearches") private var recentData = ""
+    @AppStorage(SearchHistory.key) private var recentData = ""
 
     private var offline: Bool { app.prefs.data.offline || !app.network.isOnline }
     private var recents: [String] { recentData.split(separator: "\n").map(String.init) }
@@ -80,9 +107,6 @@ struct SearchView: View {
                                        description: Text(offline ? "You're offline, so only downloaded songs show up." : "Tap a song to hear a preview, or the arrow to download it."))
             }
         }
-        .navigationTitle("Search")
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: offline ? "Your downloads" : "Artists, songs, albums")
-        .onSubmit(of: .search) { remember(query) }
         .task(id: query) { await search() }
     }
 
@@ -103,10 +127,4 @@ struct SearchView: View {
         }
     }
 
-    private func remember(_ q: String) {
-        let t = q.trimmingCharacters(in: .whitespaces)
-        guard !t.isEmpty else { return }
-        let list = [t] + recents.filter { $0.caseInsensitiveCompare(t) != .orderedSame }
-        recentData = list.prefix(8).joined(separator: "\n")
-    }
 }

@@ -384,6 +384,7 @@ struct QueueView: View {
                 } header: { SectionLabel(text: "Next from: \(p.contextName)") }
             }
             .environment(\.editMode, .constant(.active))
+            .themedForm()
             .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -587,6 +588,7 @@ struct OutputView: View {
                     }
                 }
             }
+            .themedForm()
             .navigationTitle("Play on")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

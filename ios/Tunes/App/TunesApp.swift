@@ -15,6 +15,7 @@ struct TunesApp: App {
                 .environment(app)
                 .environment(\.look, app.prefs.look)
                 .tint(app.prefs.accent)
+                .toggleStyle(TunesToggleStyle())
                 .preferredColorScheme(app.prefs.colorScheme)
                 .dynamicTypeSize(app.prefs.data.textSize.dynamicType)
                 .transaction { t in if !app.prefs.data.animations { t.animation = nil } }
@@ -79,13 +80,13 @@ struct RootView: View {
                 .environment(app)
                 .environment(\.look, look)
                 .tint(look.accent)
-                .preferredColorScheme(app.prefs.colorScheme)
+                .toggleStyle(TunesToggleStyle())
         }
         .fullScreenCover(isPresented: Binding(get: { !app.prefs.data.onboarded }, set: { _ in })) {
-            WelcomeView().environment(app).environment(\.look, look)
+            WelcomeView().environment(app).environment(\.look, look).tint(look.accent)
         }
         .fullScreenCover(isPresented: $app.showWrapped) {
-            WrappedView().environment(app).environment(\.look, look)
+            WrappedView().environment(app).environment(\.look, look).tint(look.accent).toggleStyle(TunesToggleStyle())
         }
         .onChange(of: app.player.message) { _, msg in
             guard let msg else { return }

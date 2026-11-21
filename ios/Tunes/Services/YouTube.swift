@@ -17,12 +17,13 @@ struct MatchResult {
 }
 
 enum YouTubeError: LocalizedError {
-    case noResults, http(Int), noAudio, noVideo, empty, badLink
+    case noResults, http(Int), noAudio, noVideo, empty, badLink, extraction(String)
     var errorDescription: String? {
         switch self {
-        case .noResults: "Couldn't find this song on YouTube."
-        case .http(let code): "YouTube didn't answer (error \(code))."
-        case .noAudio: "No playable audio found for this video."
+        case .noResults: "Search: YouTube had no matching videos."
+        case .http(let code): "Download: YouTube refused the request (error \(code))."
+        case .noAudio: "Download: found the video, but it had no audio Tunes can play."
+        case .extraction(let detail): "Download: found the video, but couldn't get its audio (\(detail))."
         case .noVideo: "No playable video found."
         case .empty: "The download came back empty."
         case .badLink: "That doesn't look like a YouTube link."
@@ -59,9 +60,8 @@ enum YouTubeSearch {
     private static func collect(_ node: Any, into out: inout [VideoCandidate]) {
         if let dict = node as? [String: Any] {
             if let r = dict["videoRenderer"] as? [String: Any], let c = candidate(r) { out.append(c) }
-            if let order = dict["contents"] as? [Any] {
-                for v in order { collect(v, into: &out) }
-            }
+            // Visit "contents" first (it's where search results live, in page order), whether it's a list or a single block.
+            if let contents = dict["contents"] { collect(contents, into: &out) }
             for (k, v) in dict where k != "videoRenderer" && k != "contents" { collect(v, into: &out) }
         } else if let array = node as? [Any] {
             for v in array { collect(v, into: &out) }
@@ -151,7 +151,12 @@ enum YouTubeMedia {
     /// Downloads the audio track as .m4a (AAC, which iOS plays natively).
     static func downloadAudio(videoID: String, to dest: URL, saveSpace: Bool, allowRemote: Bool,
                               progress: @escaping @Sendable (Double) -> Void) async throws {
-        let streams = try await video(videoID, allowRemote: allowRemote).streams
+        let streams: [YouTubeKit.Stream]
+        do {
+            streams = try await video(videoID, allowRemote: allowRemote).streams
+        } catch {
+            throw YouTubeError.extraction(String(describing: error))
+        }
         let m4a = streams.filterAudioOnly().filter { $0.fileExtension == .m4a }
         let pick = saveSpace ? m4a.lowestAudioBitrateStream() : m4a.highestAudioBitrateStream()
         guard let stream = pick ?? streams.filterAudioOnly().filter({ $0.isNativelyPlayable }).highestAudioBitrateStream() else {

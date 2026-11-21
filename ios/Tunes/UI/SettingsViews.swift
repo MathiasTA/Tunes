@@ -11,16 +11,18 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var prefs = app.prefs
         List {
-            Section("General") {
+            Section {
                 Toggle(isOn: $prefs.data.offline) {
                     Label { VStack(alignment: .leading) { Text("Offline mode"); Text("Only show downloaded music").font(.caption).foregroundStyle(.secondary) } } icon: { Image(systemName: "airplane") }
                 }
                 NavigationLink { AppearanceView() } label: { Label("Appearance", systemImage: "paintbrush") }
                 NavigationLink { ConnectionsView() } label: { Label("Connections", systemImage: "link") }
-            }
-            Section("Playback") {
+            } header: { Text("General") }
+            Section {
                 NavigationLink { SoundSettingsView() } label: { Label("Sound, EQ & crossfade", systemImage: "slider.vertical.3") }
                 Toggle(isOn: $prefs.data.lyricsEnabled) { Label("Show lyrics", systemImage: "quote.bubble") }
+            } header: { Text("Playback") } footer: {
+                Text("Show lyrics: adds the lyrics card under the player and lets Tunes look up lyrics online.")
             }
             Section("Your music") {
                 NavigationLink { StorageView() } label: { Label("Storage & downloads", systemImage: "internaldrive") }
@@ -32,7 +34,7 @@ struct SettingsView: View {
                 Toggle("Play previews on mobile data", isOn: $prefs.data.previewsOnCellular)
                 Toggle("Ask before loading artist extras", isOn: $prefs.data.askBeforeExtras)
             } header: { Text("Mobile data") } footer: {
-                Text("Artist extras are shows, similar artists and bios. Pages always load; extras wait for Wi-Fi or a tap.")
+                Text("Download only on Wi-Fi: songs you download on mobile data wait in line and start when you're on Wi-Fi. Previews: the 30-second clips you hear when tapping a song you don't have. Artist extras: shows, similar artists and bio on artist pages; when this is on, they stay blurred on mobile data until you tap Load.")
             }
             Section {
                 Toggle("Backup download method", isOn: $prefs.data.allowRemoteExtraction)
@@ -46,6 +48,7 @@ struct SettingsView: View {
                 LabeledContent("Lyrics", value: "LRCLIB")
             }
         }
+        .themedForm()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -107,6 +110,7 @@ struct SoundSettingsView: View {
                 Toggle("Never crossfade inside albums", isOn: $prefs.data.noCrossfadeInAlbums)
             } header: { Text("Transitions") }
         }
+        .themedForm()
         .navigationTitle("Sound")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { output = app.player.outputKind }
@@ -212,6 +216,7 @@ struct StorageView: View {
                 Button("Remove all downloads", role: .destructive) { confirmDeleteAll = true }
             }
         }
+        .themedForm()
         .navigationTitle("Storage")
         .navigationBarTitleDisplayMode(.inline)
         .task { measure() }
@@ -245,9 +250,10 @@ struct StorageView: View {
 
 struct BackupView: View {
     @Environment(AppModel.self) private var app
-    @State private var pickFolder = false
-    @State private var pickRestore = false
-    @State private var pickHistory = false
+    /// One file picker for the whole screen: SwiftUI only honors one `.fileImporter` per view.
+    enum PickMode { case folder, restore, history }
+    @State private var pickMode: PickMode = .folder
+    @State private var picking = false
     @State private var restoreURL: URL?
     @State private var confirmReset = false
 
@@ -256,7 +262,7 @@ struct BackupView: View {
         let backup = app.backup
         Form {
             Section {
-                Button { pickFolder = true } label: {
+                Button { pick(.folder) } label: {
                     LabeledContent("Backup folder", value: prefs.data.backupFolderName ?? "Choose…")
                 }
                 Button {
@@ -283,7 +289,7 @@ struct BackupView: View {
                 }
             }
             Section {
-                Button("Restore from a backup…") { pickRestore = true }
+                Button("Restore from a backup…") { pick(.restore) }
                 if !backup.missingAfterRestore.isEmpty {
                     Button("Download \(backup.missingAfterRestore.count) missing songs") { backup.downloadMissing() }
                 }
@@ -292,7 +298,7 @@ struct BackupView: View {
             Section {
                 switch app.history.phase {
                 case .idle:
-                    Button("Import Spotify listening history…") { pickHistory = true }
+                    Button("Import Spotify listening history…") { pick(.history) }
                 case .reading:
                     HStack { ProgressView(); Text("Reading files…") }
                 case .matching(let done, let total):
@@ -307,10 +313,10 @@ struct BackupView: View {
                         if let since { Text("Going back to \(since.formatted(date: .abbreviated, time: .omitted))").font(.caption) }
                         if unmatched > 0 { Text("\(unmatched) plays couldn't be matched and were left out.").font(.caption).foregroundStyle(.secondary) }
                     }
-                    Button("Import more") { pickHistory = true }
+                    Button("Import more") { pick(.history) }
                 case .failed(let msg):
                     Text(msg).font(.footnote).foregroundStyle(.red)
-                    Button("Try again") { pickHistory = true }
+                    Button("Try again") { pick(.history) }
                 }
             } header: { Text("Spotify history") } footer: {
                 Text("Request \"Extended streaming history\" at spotify.com → Account → Privacy. When the email arrives, save the .zip to Files, open it, and pick the Streaming_History_Audio .json files here. Plays count for the real artists. Importing twice won't double count.")
@@ -319,16 +325,17 @@ struct BackupView: View {
                 Button("Reset all stats", role: .destructive) { confirmReset = true }
             }
         }
+        .themedForm()
         .navigationTitle("Backup & import")
         .navigationBarTitleDisplayMode(.inline)
-        .fileImporter(isPresented: $pickFolder, allowedContentTypes: [.folder]) { r in
-            if case .success(let url) = r { backup.setFolder(url) }
-        }
-        .fileImporter(isPresented: $pickRestore, allowedContentTypes: [.json]) { r in
-            if case .success(let url) = r { restoreURL = url }
-        }
-        .fileImporter(isPresented: $pickHistory, allowedContentTypes: [.json], allowsMultipleSelection: true) { r in
-            if case .success(let urls) = r { app.history.start(files: urls) }
+        .fileImporter(isPresented: $picking, allowedContentTypes: pickMode == .folder ? [.folder] : [.json],
+                      allowsMultipleSelection: pickMode == .history) { r in
+            guard case .success(let urls) = r, let first = urls.first else { return }
+            switch pickMode {
+            case .folder: backup.setFolder(first)
+            case .restore: restoreURL = first
+            case .history: app.history.start(files: urls)
+            }
         }
         .confirmationDialog("Restore this backup?", isPresented: Binding(get: { restoreURL != nil }, set: { if !$0 { restoreURL = nil } }), titleVisibility: .visible) {
             Button("Restore", role: .destructive) {
@@ -341,6 +348,13 @@ struct BackupView: View {
         .confirmationDialog("Reset all stats?", isPresented: $confirmReset, titleVisibility: .visible) {
             Button("Reset", role: .destructive) { app.stats.reset(); app.show("Stats reset") }
         } message: { Text("Listening time, plays and Wrapped start from zero. This can't be undone unless you restore a backup.") }
+    }
+}
+
+extension BackupView {
+    fileprivate func pick(_ mode: PickMode) {
+        pickMode = mode
+        picking = true
     }
 }
 
@@ -363,14 +377,16 @@ struct AppearanceView: View {
     var body: some View {
         @Bindable var prefs = app.prefs
         Form {
-            Section("Theme") {
+            Section {
                 Picker("Theme", selection: $prefs.data.theme) {
-                    Text("Dark").tag(ThemeMode.dark); Text("Light").tag(ThemeMode.light)
-                    Text("Auto").tag(ThemeMode.auto); Text("Black").tag(ThemeMode.black)
+                    Text("Dark").tag(ThemeMode.dark); Text("Black").tag(ThemeMode.black)
+                    Text("Light").tag(ThemeMode.light); Text("Auto").tag(ThemeMode.auto)
                 }
                 .pickerStyle(.segmented)
+            } header: { Text("Theme") } footer: {
+                Text("Dark uses soft charcoal greys. Black uses pure black, which looks deeper and saves battery on iPhone screens that light each pixel (iPhone X and newer, except XR and 11). Auto follows your iPhone's light/dark setting.")
             }
-            Section("Accent color") {
+            Section {
                 HStack {
                     ForEach(Self.accents, id: \.self) { hex in
                         Button { withAnimation { prefs.data.accentHex = hex }; app.haptic(.selection) } label: {
@@ -383,8 +399,10 @@ struct AppearanceView: View {
                     }
                 }
                 .padding(.vertical, 6)
+            } header: { Text("Accent color") } footer: {
+                Text("Used for buttons, switches, progress bars and highlights all over the app.")
             }
-            Section("App icon") {
+            Section {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 14) {
                     ForEach(AppIcons.all, id: \.name) { icon in
                         Button { setIcon(icon.name) } label: {
@@ -410,21 +428,28 @@ struct AppearanceView: View {
                     }
                 }
                 .padding(.vertical, 6)
+            } header: { Text("App icon") } footer: {
+                Text("Changes the icon on your Home Screen. iOS shows a short message confirming the change.")
             }
-            Section("Shapes") {
+            Section {
                 Picker("Corners", selection: $prefs.data.corners) { ForEach(CornerStyle.allCases) { Text($0.label).tag($0) } }
                 Picker("Artwork", selection: $prefs.data.artShape) { ForEach(ArtShape.allCases) { Text($0.label).tag($0) } }
                 Picker("Text size", selection: $prefs.data.textSize) {
                     Text("Small").tag(TextSize.small); Text("Medium").tag(TextSize.medium); Text("Large").tag(TextSize.large)
                 }
                 Picker("Player background", selection: $prefs.data.playerBackground) { ForEach(PlayerBackground.allCases) { Text($0.label).tag($0) } }
+            } header: { Text("Shapes & size") } footer: {
+                Text("Corners: how round cards, tiles and panels are. Artwork: the shape of song and album covers. Text size: makes all text in Tunes bigger or smaller. Player background: what's behind the full-screen player (a color taken from the cover, a blurred cover, or plain).")
             }
-            Section("Feel") {
+            Section {
                 Toggle("Tab bar labels", isOn: $prefs.data.tabLabels)
                 Toggle("Haptics", isOn: $prefs.data.haptics)
                 Toggle("Animations", isOn: $prefs.data.animations)
+            } header: { Text("Feel") } footer: {
+                Text("Tab bar labels: shows the words Home, Library and Stats under the icons at the bottom. Haptics: the small vibrations when you tap buttons, like a song, flip a switch or finish a download. Animations: turn off for instant screen changes with no sliding or fading.")
             }
         }
+        .themedForm()
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -470,6 +495,7 @@ struct ConnectionsView: View {
                 Text("Get a free key at developer.ticketmaster.com (My Apps → Consumer Key). It's stored only on this iPhone.")
             }
         }
+        .themedForm()
         .navigationTitle("Connections")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { key = app.prefs.data.ticketmasterKey }
@@ -493,10 +519,11 @@ struct ConnectionsView: View {
 struct CustomizeHomeView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    /// True when shown on its own from Home (adds a Done button); false when pushed from Settings.
+    var asSheet = false
 
     var body: some View {
         @Bindable var prefs = app.prefs
-        NavigationStack {
             List {
                 Section {
                     ForEach($prefs.data.home) { $s in
@@ -516,10 +543,10 @@ struct CustomizeHomeView: View {
                 }
             }
             .environment(\.editMode, .constant(.active))
+            .themedForm()
             .navigationTitle("Customize Home")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }
+            .toolbar { if asSheet { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
     }
 }
 
@@ -604,6 +631,7 @@ struct ProfileView: View {
                     NavigationLink { SettingsView() } label: { Label("All settings", systemImage: "gearshape") }
                 }
             }
+            .themedForm()
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { prefs.data.name = name; dismiss() } } }

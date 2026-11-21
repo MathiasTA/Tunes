@@ -484,6 +484,7 @@ struct Toast: View {
 /// A banner when the user is offline or in offline mode.
 struct OfflineBanner: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
 
     var body: some View {
         if app.prefs.data.offline || !app.network.isOnline {
@@ -500,8 +501,8 @@ struct OfflineBanner: View {
                 }
             }
             .padding(12)
-            .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.yellow.opacity(0.35)))
+            .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: look.radius(14)))
+            .overlay(RoundedRectangle(cornerRadius: look.radius(14)).stroke(Color.yellow.opacity(0.35)))
         }
     }
 }

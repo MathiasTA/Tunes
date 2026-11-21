@@ -210,6 +210,7 @@ struct SongStatsView: View {
                 }
             }
         }
+        .themedForm()
         .navigationTitle("Song stats")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftUI
+import UIKit
 
 enum ThemeMode: String, Codable, CaseIterable, Identifiable {
     case dark, light, auto, black
@@ -328,9 +329,94 @@ extension Prefs {
     }
 }
 
-/// Background colors that respect light, dark and pure-black themes.
+/// Background colors for the themes. Dark is a soft charcoal; Black is pure black (best on OLED screens);
+/// Light and Auto follow the system in light mode.
 struct Surface {
-    static func background(_ look: Look) -> Color { look.black ? .black : Color(.systemBackground) }
-    static func card(_ look: Look) -> Color { look.black ? Color(white: 0.08) : Color(.secondarySystemBackground) }
-    static func raised(_ look: Look) -> Color { look.black ? Color(white: 0.13) : Color(.tertiarySystemBackground) }
+    private static func dynamic(light: UIColor, dark: UIColor) -> Color {
+        Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
+    private static func gray(_ v: CGFloat) -> UIColor { UIColor(red: v, green: v, blue: v + 0.012, alpha: 1) }
+
+    static func background(_ look: Look) -> Color {
+        look.black ? .black : dynamic(light: .systemBackground, dark: gray(0.075))
+    }
+    static func card(_ look: Look) -> Color {
+        look.black ? Color(white: 0.08) : dynamic(light: .secondarySystemBackground, dark: gray(0.13))
+    }
+    static func raised(_ look: Look) -> Color {
+        look.black ? Color(white: 0.13) : dynamic(light: .tertiarySystemBackground, dark: gray(0.18))
+    }
+    /// Background behind grouped settings lists.
+    static func grouped(_ look: Look) -> Color {
+        look.black ? .black : dynamic(light: .systemGroupedBackground, dark: gray(0.075))
+    }
+    /// Row color inside grouped settings lists.
+    static func groupedRow(_ look: Look) -> Color {
+        look.black ? Color(white: 0.09) : dynamic(light: .secondarySystemGroupedBackground, dark: gray(0.14))
+    }
+}
+
+/// Applies the theme's colors to a Form or List of settings.
+struct ThemedForm: ViewModifier {
+    @Environment(\.look) private var look
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .background(Surface.grouped(look).ignoresSafeArea())
+            .labelStyle(SettingsLabelStyle())
+            .tint(look.accent)
+    }
+}
+
+/// Settings rows: accent-colored icon in a fixed-width column, text in the normal text color.
+struct SettingsLabelStyle: LabelStyle {
+    @Environment(\.look) private var look
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.icon.foregroundStyle(look.accent).frame(width: 26)
+            configuration.title.foregroundStyle(Color.primary)
+        }
+    }
+}
+
+extension View {
+    func themedForm() -> some View { modifier(ThemedForm()) }
+}
+
+/// A switch drawn by Tunes, so it follows the accent color and the Haptics setting
+/// (the system switch always vibrates, whatever the app's setting is).
+struct TunesToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        TunesSwitch(configuration: configuration)
+    }
+}
+
+private struct TunesSwitch: View {
+    let configuration: ToggleStyleConfiguration
+    @Environment(\.look) private var look
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { configuration.isOn.toggle() }
+            AppModel.shared.haptic(.selection)
+        } label: {
+            HStack {
+                configuration.label
+                Spacer(minLength: 12)
+                Capsule()
+                    .fill(configuration.isOn ? look.accent : Color(.systemFill))
+                    .frame(width: 51, height: 31)
+                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                        Circle().fill(.white).padding(2).shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                    }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0.45)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
 }

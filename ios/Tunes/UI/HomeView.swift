@@ -6,10 +6,50 @@ struct HomeView: View {
     @State private var trending: [Song] = []
     @State private var releases: [Album] = []
     @State private var showCustomize = false
+    @State private var searching = false
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
+    @Namespace private var ns
 
     private var offline: Bool { app.prefs.data.offline || !app.network.isOnline }
+    private let searchSpring = Animation.spring(response: 0.48, dampingFraction: 0.86)
 
     var body: some View {
+        ZStack(alignment: .top) {
+            Surface.background(look).ignoresSafeArea()
+            if searching {
+                VStack(spacing: 0) {
+                    searchField
+                        .padding(.horizontal)
+                        .padding(.top, 6)
+                        .padding(.bottom, 8)
+                    SearchResultsList(query: $query)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 40)), removal: .opacity))
+                }
+            } else {
+                home
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: -30)),
+                                            removal: .offset(y: 320).combined(with: .opacity)))
+            }
+        }
+        .toolbar(searching ? .hidden : .visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { app.sheet = .profile } label: { ProfileAvatar(size: 34) }
+                    .accessibilityLabel("Your profile")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showCustomize = true } label: { Image(systemName: "slider.horizontal.3") }
+                    .accessibilityLabel("Customize home")
+            }
+        }
+        .sheet(isPresented: $showCustomize) {
+            NavigationStack { CustomizeHomeView(asSheet: true) }.environment(app).environment(\.look, look).tint(look.accent)
+        }
+        .task { await loadDiscovery() }
+    }
+
+    private var home: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 header
@@ -27,44 +67,75 @@ struct HomeView: View {
             .padding(.top, 4)
         }
         .background(Surface.background(look))
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { app.sheet = .profile } label: { ProfileAvatar(size: 34) }
-                    .accessibilityLabel("Your profile")
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { showCustomize = true } label: { Image(systemName: "slider.horizontal.3") }
-                    .accessibilityLabel("Customize home")
-                NavigationLink(value: Route.search) { Image(systemName: "magnifyingglass") }
-                    .accessibilityLabel("Search")
-            }
-        }
-        .sheet(isPresented: $showCustomize) {
-            CustomizeHomeView().environment(app).environment(\.look, look).tint(look.accent)
-        }
-        .task { await loadDiscovery() }
         .refreshable {
             await app.playlists.refreshAll(force: true)
             await loadDiscovery(force: true)
         }
     }
 
+    private func startSearch() {
+        app.haptic(.light)
+        withAnimation(searchSpring) { searching = true }
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            searchFocused = true
+        }
+    }
+
+    private func endSearch() {
+        searchFocused = false
+        withAnimation(searchSpring) {
+            searching = false
+            query = ""
+        }
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(greeting).font(.largeTitle.bold()).contentTransition(.opacity)
-            NavigationLink(value: Route.search) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                    Text(offline ? "Search your downloads" : "Search artists, songs, albums")
-                    Spacer()
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14).frame(height: 46)
-                .background(Surface.card(look), in: RoundedRectangle(cornerRadius: look.radius(12), style: .continuous))
-            }
-            .buttonStyle(PressStyle())
+            searchButton
         }
         .padding(.horizontal)
+    }
+
+    /// The bar in the Home header. Tapping it lifts it to the top, where it becomes the real search field.
+    private var searchButton: some View {
+        Button(action: startSearch) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                Text(offline ? "Search your downloads" : "Search artists, songs, albums")
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14).frame(height: 46)
+            .background(Surface.card(look), in: RoundedRectangle(cornerRadius: look.radius(12), style: .continuous))
+            .matchedGeometryEffect(id: "searchBar", in: ns)
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("Search")
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField(offline ? "Search your downloads" : "Artists, songs, albums", text: $query)
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .onSubmit { SearchHistory.remember(query) }
+                if !query.isEmpty {
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 14).frame(height: 46)
+            .background(Surface.card(look), in: RoundedRectangle(cornerRadius: look.radius(12), style: .continuous))
+            .matchedGeometryEffect(id: "searchBar", in: ns)
+            Button("Cancel", action: endSearch)
+                .font(.body.weight(.medium))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
     }
 
     private var greeting: String {

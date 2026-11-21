@@ -44,14 +44,27 @@ struct ArtistView: View {
                         }
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                } header: { SectionLabel(text: "Discography") }
-            }
-            if !offline {
-                Section {
-                    NavigationLink(value: Route.artistMore(shown)) {
-                        Label("Similar artists, shows & about", systemImage: "person.2.wave.2")
+                } header: {
+                    NavigationLink {
+                        DiscographyView(artist: shown, albums: albums)
+                    } label: {
+                        HStack(spacing: 4) {
+                            SectionLabel(text: "Discography")
+                            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text("See all \(albums.count)").font(.caption.weight(.semibold)).foregroundStyle(look.accent)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
+            }
+            if !offline && artist.id > 0 {
+                Section {
+                    ArtistExtras(artist: shown)
+                        .listRowInsets(EdgeInsets())
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
             if let loadError, local.isEmpty {
                 Text(loadError).font(.footnote).foregroundStyle(.secondary)
@@ -113,8 +126,21 @@ struct ArtistView: View {
     }
 }
 
-/// Similar artists, upcoming shows and bio. Extras ask before using mobile data.
+/// Kept for old links: the extras on their own page.
 struct ArtistMoreView: View {
+    let artist: Artist
+    @Environment(\.look) private var look
+    var body: some View {
+        ScrollView { ArtistExtras(artist: artist) }
+            .background(Surface.background(look))
+            .navigationTitle(artist.name)
+            .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Similar artists, upcoming shows and bio, shown at the bottom of the artist page.
+/// Shows and bio ask before using mobile data.
+struct ArtistExtras: View {
     let artist: Artist
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
@@ -128,7 +154,6 @@ struct ArtistMoreView: View {
     private var mustAsk: Bool { app.network.onMobileData && app.prefs.data.askBeforeExtras && !extrasAllowed }
 
     var body: some View {
-        ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if !similar.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
@@ -147,7 +172,7 @@ struct ArtistMoreView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "sparkles").font(.title3).frame(width: 44, height: 44)
-                                    .background(Color(hex: "#3730A3"), in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(.white)
+                                    .background(look.accent.opacity(0.9), in: RoundedRectangle(cornerRadius: look.radius(10))).foregroundStyle(.black)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Make a \"Like \(artist.name)\" playlist").font(.subheadline.weight(.semibold))
                                     Text("Auto playlist of artists like this, updates itself").font(.caption).foregroundStyle(.secondary)
@@ -182,10 +207,6 @@ struct ArtistMoreView: View {
                 .padding(.horizontal)
             }
             .padding(.vertical)
-        }
-        .background(Surface.background(look))
-        .navigationTitle(artist.name)
-        .navigationBarTitleDisplayMode(.inline)
         .task { similar = (try? await Catalog.related(artistID: artist.id, limit: 12)) ?? [] }
         .task(id: mustAsk) { if !mustAsk { await loadExtras() } }
     }
@@ -225,7 +246,7 @@ struct ArtistMoreView: View {
                                 Text(c.date.map { $0.formatted(.dateTime.day()) } ?? "").font(.title3.weight(.heavy))
                             }
                             .frame(width: 48, height: 48)
-                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: look.radius(10)))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(c.venue.isEmpty ? c.name : c.venue).font(.subheadline.weight(.semibold))
                                 Text([c.city, c.distanceKm.map { "\(Int($0)) km away" }, c.priceFrom].compactMap { $0 }.joined(separator: " · "))
@@ -330,6 +351,118 @@ struct AlbumView: View {
                 songs = app.library.songs.filter { $0.album?.id == album.id }
                 self.error = songs.isEmpty ? error.localizedDescription : nil
             }
+        }
+    }
+}
+
+/// Every release by an artist, in one scrolling list you can filter.
+struct DiscographyView: View {
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All", albums = "Albums", singles = "Singles & EPs", features = "Features"
+        var id: String { rawValue }
+    }
+
+    let artist: Artist
+    let albums: [Album]
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+    @State private var filter: Filter = .all
+    @State private var newestFirst = true
+    @State private var features: [Song]?
+
+    private var releases: [Album] {
+        let list: [Album]
+        switch filter {
+        case .all: list = albums
+        case .albums: list = albums.filter { ($0.recordType ?? "album") == "album" || $0.recordType == "compile" }
+        case .singles: list = albums.filter { $0.recordType == "single" || $0.recordType == "ep" }
+        case .features: list = []
+        }
+        return list.sorted { newestFirst ? ($0.releaseDate ?? "") > ($1.releaseDate ?? "") : ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
+    }
+
+    var body: some View {
+        List {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Filter.allCases) { f in
+                        Chip(title: f.rawValue, selected: filter == f) { withAnimation(.easeInOut(duration: 0.2)) { filter = f } }
+                    }
+                }
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            if filter == .features {
+                if let features {
+                    ForEach(features) { SongRow(song: $0, queue: features, context: "\(artist.name) · Features") }
+                    if features.isEmpty {
+                        Text("No features found for \(artist.name).").font(.footnote).foregroundStyle(.secondary)
+                    }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden)
+                }
+            } else {
+                ForEach(releases) { a in
+                    NavigationLink(value: Route.album(a)) {
+                        HStack(spacing: 12) {
+                            a.cover(64)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(a.title).font(.body.weight(.medium)).lineLimit(2)
+                                Text([kind(a), a.year, a.trackCount.map { "\($0) song\($0 == 1 ? "" : "s")" }].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                if releases.isEmpty {
+                    Text("Nothing here.").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Surface.background(look))
+        .navigationTitle("Discography")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if filter != .features {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { withAnimation { newestFirst.toggle() } } label: {
+                        Label(newestFirst ? "Newest first" : "Oldest first", systemImage: "arrow.up.arrow.down")
+                            .labelStyle(.titleAndIcon).font(.subheadline.weight(.semibold))
+                    }
+                }
+            }
+        }
+        .task(id: filter) {
+            guard filter == .features, features == nil else { return }
+            features = await Self.loadFeatures(artist)
+        }
+    }
+
+    private func kind(_ a: Album) -> String {
+        switch a.recordType {
+        case "single": "Single"
+        case "ep": "EP"
+        case "compile": "Compilation"
+        default: "Album"
+        }
+    }
+
+    /// Songs led by other artists that this artist appears on.
+    static func loadFeatures(_ artist: Artist) async -> [Song] {
+        let name = artist.name.normalizedForMatching
+        var found: [Song] = []
+        for q in ["\(artist.name) feat", "feat. \(artist.name)", artist.name] {
+            if let r = try? await Catalog.searchSongs(q, limit: 100) { found += r }
+        }
+        var seen = Set<Int>()
+        return found.filter { s in
+            guard s.artist.id != artist.id, seen.insert(s.id).inserted else { return false }
+            if s.featured.contains(where: { $0.id == artist.id }) { return true }
+            let t = s.title.normalizedForMatching
+            return (t.contains("feat") || t.contains("with") || t.contains(" ft ")) && t.contains(name)
         }
     }
 }

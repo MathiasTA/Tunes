@@ -265,6 +265,7 @@ struct BrowseChartsView: View {
             }
         }
         .environment(\.editMode, .constant(.active))
+        .themedForm()
         .navigationTitle("Charts")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "Find a country, genre or playlist")
@@ -356,6 +357,7 @@ struct AutoPlaylistEditor: View {
                     }
                 }
             }
+            .themedForm()
             .navigationTitle(playlistID == nil ? "New auto playlist" : "Auto playlist")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

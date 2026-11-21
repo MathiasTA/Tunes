@@ -266,6 +266,7 @@ struct CreatePlaylistView: View {
             Form {
                 TextField("Playlist name", text: $name).font(.title3)
             }
+            .themedForm()
             .navigationTitle("New playlist")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -329,6 +330,7 @@ struct AddToPlaylistView: View {
                     }
                 }
             }
+            .themedForm()
             .navigationTitle(songs.count == 1 ? "Add to playlist" : "Add \(songs.count) songs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }

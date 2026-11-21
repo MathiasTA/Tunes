@@ -78,6 +78,7 @@ struct SongMenuView: View {
                     }
                 }
             }
+            .themedForm()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
@@ -148,6 +149,7 @@ struct ShareSongView: View {
                     }
                 }
             }
+            .themedForm()
             .navigationTitle("Share")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -306,6 +308,7 @@ struct EditSongView: View {
                 }
             }
         }
+        .themedForm()
         .navigationTitle("Edit song")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -517,6 +520,7 @@ struct LinkArtistView: View {
             }
             .environment(\.editMode, .constant(.active))
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search artists")
+            .themedForm()
             .navigationTitle("Link artists")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -626,6 +630,7 @@ struct TrimView: View {
                 }
             }
         }
+        .themedForm()
         .navigationTitle("Trim")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Save") { save(); dismiss() }.bold() } }
@@ -729,6 +734,7 @@ struct ImportFilesView: View {
                     Section { itemView(i, item) }
                 }
             }
+            .themedForm()
             .navigationTitle("Import files")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -934,6 +940,7 @@ struct FindSongView: View {
                 if loading { ProgressView().frame(maxWidth: .infinity) }
             }
             .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always))
+            .themedForm()
             .navigationTitle("Find the song")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
@@ -989,6 +996,7 @@ struct SpotifyImportView: View {
             List {
                 if rows.isEmpty { start } else { review }
             }
+            .themedForm()
             .navigationTitle("Import from Spotify")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
