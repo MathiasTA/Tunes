@@ -9,4 +9,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
       - working-directory: diag/ytkit
-        run: swift run -c release Diag 2>&1 | grep -E "SEARCH|STREAMS|DOWNLOAD|error" | head -40
+        run: swift run -c release Diag 2>&1 | grep -E "SEARCH|RAW|WALK|COLLECT|error" | head -40

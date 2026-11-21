@@ -49,8 +49,13 @@ enum YouTubeSearch {
         if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw YouTubeError.http(http.statusCode)
         }
+        let raw = String(decoding: data, as: UTF8.self)
+        print("RAW status \((resp as? HTTPURLResponse)?.statusCode ?? 0) bytes \(data.count) videoRenderer=\(raw.components(separatedBy: "videoRenderer").count - 1) head=\(raw.prefix(300))")
         var found: [VideoCandidate] = []
-        collect(try JSONSerialization.jsonObject(with: data), into: &found)
+        let obj = try JSONSerialization.jsonObject(with: data)
+        print("WALK found videoRenderer dicts: \(debugWalk(obj))")
+        collect(obj, into: &found)
+        print("COLLECT found \(found.count)")
         var seen = Set<String>()
         return found.filter { seen.insert($0.id).inserted }
     }
@@ -66,6 +71,12 @@ enum YouTubeSearch {
         } else if let array = node as? [Any] {
             for v in array { collect(v, into: &out) }
         }
+    }
+
+    static func debugWalk(_ node: Any, depth: Int = 0) -> Int {
+        if let d = node as? [String: Any] { return (d["videoRenderer"] != nil ? 1 : 0) + d.values.reduce(0) { $0 + debugWalk($1, depth: depth + 1) } }
+        if let a = node as? [Any] { return a.reduce(0) { $0 + debugWalk($1, depth: depth + 1) } }
+        return 0
     }
 
     private static func candidate(_ r: [String: Any]) -> VideoCandidate? {
@@ -108,19 +119,6 @@ struct Diag {
                 let r = try await YouTubeSearch.search(q)
                 print("SEARCH \(q): \(r.count) results; first: \(r.prefix(3).map { "\($0.id) \($0.title) | \($0.channel) | \($0.duration ?? -1)" })")
             } catch { print("SEARCH \(q) ERROR: \(error)") }
-        }
-        for (label, methods) in [("local", [YouTube.ExtractionMethod.local]), ("remote", [.remote])] {
-            do {
-                let streams = try await YouTube(videoID: "HfmWPfqyYyY", methods: methods).streams
-                let audio = streams.filterAudioOnly()
-                print("STREAMS \(label): total \(streams.count), audio \(audio.count), m4a \(audio.filter { $0.fileExtension == .m4a }.count)")
-                if let s = audio.filter({ $0.fileExtension == .m4a }).highestAudioBitrateStream() {
-                    var req = URLRequest(url: s.url)
-                    req.setValue("bytes=0-999999", forHTTPHeaderField: "Range")
-                    let (data, resp) = try await URLSession.shared.data(for: req)
-                    print("DOWNLOAD \(label): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0), \(data.count) bytes")
-                }
-            } catch { print("STREAMS \(label) ERROR: \(error)") }
         }
     }
 }
