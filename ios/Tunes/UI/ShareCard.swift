@@ -315,14 +315,15 @@ struct ShareCardEditor: View {
                     Button {
                         withAnimation { style = .random() }
                         app.haptic(.medium)
-                    } label: { Label("Surprise me", systemImage: "dice").frame(maxWidth: .infinity) }
+                    } label: { Image(systemName: "dice.fill").font(.title3) }
                         .buttonStyle(.bordered)
-                    Button { save() } label: { Label("Save image", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity) }
+                        .accessibilityLabel("Surprise me")
+                    Button { save() } label: { Label("Save", systemImage: "square.and.arrow.down").lineLimit(1).frame(maxWidth: .infinity) }
                         .buttonStyle(.bordered)
                         .disabled(rendered == nil)
                     if let rendered {
                         ShareLink(item: Image(uiImage: rendered), preview: SharePreview("My Wrapped", image: Image(uiImage: rendered))) {
-                            Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                            Label("Share", systemImage: "square.and.arrow.up").lineLimit(1).frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -371,16 +372,25 @@ struct ShareCardEditor: View {
                     }
                     .padding(.horizontal)
                 }
-                HStack {
-                    ColorPicker("Background", selection: $style.background, supportsOpacity: false)
-                    ColorPicker("Shapes", selection: $style.shapes, supportsOpacity: false)
-                    ColorPicker("Text", selection: $style.text, supportsOpacity: false)
+                HStack(spacing: 0) {
+                    colorWell("Background", $style.background)
+                    colorWell("Shapes", $style.shapes)
+                    colorWell("Text", $style.text)
                 }
-                .font(.caption)
                 .padding(.horizontal)
             }
             .padding(.top, 12)
         }
+    }
+
+    /// A color picker with its name centered underneath, so the three line up evenly.
+    private func colorWell(_ title: String, _ color: Binding<Color>) -> some View {
+        VStack(spacing: 4) {
+            ColorPicker(title, selection: color, supportsOpacity: false)
+                .labelsHidden()
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var looks: some View {
