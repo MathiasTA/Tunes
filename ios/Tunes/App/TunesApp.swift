@@ -41,14 +41,17 @@ struct RootView: View {
             TabView(selection: $app.tab) {
                 NavigationStack(path: $app.homePath) { HomeView().miniPlayerSpace().withRoutes() }
                     .miniPlayerInset()
+                    .solidTabBar(look)
                     .tabItem { tabLabel("Home", "house.fill") }
                     .tag(AppModel.Tab.home)
                 NavigationStack(path: $app.libraryPath) { LibraryView().miniPlayerSpace().withRoutes() }
                     .miniPlayerInset()
+                    .solidTabBar(look)
                     .tabItem { tabLabel("Library", "square.stack.fill") }
                     .tag(AppModel.Tab.library)
                 NavigationStack(path: $app.statsPath) { StatsView().miniPlayerSpace().withRoutes() }
                     .miniPlayerInset()
+                    .solidTabBar(look)
                     .tabItem { tabLabel("Stats", "chart.bar.fill") }
                     .tag(AppModel.Tab.stats)
             }
@@ -149,6 +152,13 @@ extension View {
             }
             .miniPlayerSpace()
         }
+    }
+
+    /// Keeps the tab bar solid. iOS makes it see-through whenever a list is scrolled to its end,
+    /// which made the Home / Library / Stats buttons hard to read.
+    func solidTabBar(_ look: Look) -> some View {
+        toolbarBackground(.visible, for: .tabBar)
+            .toolbarBackground(Surface.card(look), for: .tabBar)
     }
 
     /// Floats the mini player above the tab bar. Each screen makes room for it with `miniPlayerSpace()`.
