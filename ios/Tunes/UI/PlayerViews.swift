@@ -173,7 +173,14 @@ struct FullPlayerView: View {
     private func titleRow(_ song: Song) -> some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(song.title).font(.title2.bold()).lineLimit(1)
+                // Tapping the title opens the song's album or single.
+                Button {
+                    if let album = song.album, album.id > 0 { app.navigate(.album(album)) }
+                } label: {
+                    Text(song.title).font(.title2.bold()).lineLimit(1).foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the album")
                 Button { app.navigate(.artist(song.artist)) } label: {
                     Text(song.artistLine).font(.body).foregroundStyle(.secondary).lineLimit(1)
                 }
