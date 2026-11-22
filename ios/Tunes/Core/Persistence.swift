@@ -12,6 +12,7 @@ enum Paths {
     static func songArtwork(_ id: Int) -> URL { artDir.appending(path: "song-\(id).jpg") }
     static func artistImage(_ id: Int) -> URL { artDir.appending(path: "artist-\(id).jpg") }
     static var avatar: URL { artDir.appending(path: "avatar.jpg") }
+    static func playlistCover(_ id: UUID, _ version: Int) -> URL { artDir.appending(path: "playlist-\(id.uuidString)-\(version).jpg") }
     static func data(_ name: String) -> URL { dataDir.appending(path: name) }
 
     @discardableResult

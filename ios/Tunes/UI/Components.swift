@@ -139,7 +139,9 @@ struct PlaylistTile: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Color(hex: playlist.colorHex)
-            if size > 70 {
+            if let v = playlist.coverVersion {
+                Artwork(url: nil, local: Paths.playlistCover(playlist.id, v), size: size, seed: v)
+            } else if size > 70 {
                 Text(playlist.name)
                     .font(.system(size: size * 0.13, weight: .heavy))
                     .foregroundStyle(.white)
@@ -327,13 +329,14 @@ struct DownloadButton: View {
 
 // MARK: - Tiles & shelves
 
+/// A big song tile. Tapping opens the song's menu (play, queue, go to artist…) instead of playing straight away.
 struct SongCard: View {
     let song: Song
     var size: CGFloat = 140
-    let action: () -> Void
+    @Environment(AppModel.self) private var app
 
     var body: some View {
-        Button(action: action) {
+        Button { app.sheet = .songMenu(song, playlistID: nil) } label: {
             VStack(alignment: .leading, spacing: 6) {
                 song.artwork(size)
                 Text(song.title).font(.subheadline.weight(.semibold)).lineLimit(1)

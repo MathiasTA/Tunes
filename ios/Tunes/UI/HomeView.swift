@@ -281,7 +281,7 @@ struct HomeView: View {
         if !songs.isEmpty {
             Shelf(title: "Recently played") {
                 ForEach(Array(songs.enumerated()), id: \.element.id) { i, s in
-                    SongCard(song: s) { app.player.play(songs, startAt: i, context: "Recently played") }
+                    SongCard(song: s)
                 }
             }
         }
@@ -292,7 +292,7 @@ struct HomeView: View {
         if !songs.isEmpty {
             Shelf(title: "Recently downloaded") {
                 ForEach(Array(songs.enumerated()), id: \.element.id) { i, s in
-                    SongCard(song: s) { app.player.play(songs, startAt: i, context: "Recently downloaded") }
+                    SongCard(song: s)
                 }
             }
         }

@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 struct PlaylistView: View {
@@ -7,6 +8,8 @@ struct PlaylistView: View {
     @State private var renaming = false
     @State private var newName = ""
     @State private var editing = false
+    @State private var pickingCover = false
+    @State private var coverItem: PhotosPickerItem?
 
     var body: some View {
         if let p = app.playlists.playlist(playlistID) {
@@ -32,7 +35,17 @@ struct PlaylistView: View {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .bottom, spacing: 16) {
-                        PlaylistTile(playlist: p, size: 140).shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+                        Button { pickingCover = true } label: {
+                            PlaylistTile(playlist: p, size: 140)
+                                .overlay(alignment: .bottomTrailing) {
+                                    Image(systemName: "camera.fill").font(.caption.weight(.bold))
+                                        .padding(7).background(.black.opacity(0.45), in: Circle()).foregroundStyle(.white)
+                                        .padding(6)
+                                }
+                        }
+                        .buttonStyle(PressStyle())
+                        .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+                        .accessibilityLabel("Change cover photo")
                         VStack(alignment: .leading, spacing: 6) {
                             if let b = p.badge {
                                 Text(b).font(.system(size: 10, weight: .heavy)).padding(.horizontal, 6).padding(.vertical, 3)
@@ -117,6 +130,14 @@ struct PlaylistView: View {
         }
         .refreshable { await app.playlists.refresh(p.id, force: true) }
         .task { await app.playlists.refresh(p.id) }
+        .photosPicker(isPresented: $pickingCover, selection: $coverItem, matching: .images)
+        .onChange(of: coverItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) { setCover(data, for: p) }
+                coverItem = nil
+            }
+        }
         .alert("Rename playlist", isPresented: $renaming) {
             TextField("Name", text: $newName)
             Button("Save") { app.playlists.update(p.id) { $0.name = newName } }
@@ -128,6 +149,10 @@ struct PlaylistView: View {
     private func menuItems(_ p: Playlist) -> some View {
         Button { app.playlists.togglePin(p.id) } label: { Label(p.pinned ? "Unpin" : "Pin to top", systemImage: "pin") }
         Button { newName = p.name; renaming = true } label: { Label("Rename", systemImage: "pencil") }
+        Button { pickingCover = true } label: { Label(p.coverVersion == nil ? "Add cover photo" : "Change cover photo", systemImage: "photo") }
+        if p.coverVersion != nil {
+            Button { setCover(nil, for: p) } label: { Label("Remove cover photo", systemImage: "photo.badge.minus") }
+        }
         if case .auto = p.kind {
             Button { app.sheet = .autoPlaylist(p.id) } label: { Label("Change rules", systemImage: "slider.horizontal.3") }
         }
@@ -139,6 +164,31 @@ struct PlaylistView: View {
         }
         Button { app.sheet = .addToPlaylist(p.songs) } label: { Label("Add all to another playlist", systemImage: "plus.square.on.square") }
         Button(role: .destructive) { app.playlists.delete(p.id); app.navigateBack() } label: { Label("Delete playlist", systemImage: "trash") }
+    }
+
+    /// Saves (or removes, with nil) a playlist's own cover photo, cropped square.
+    private func setCover(_ data: Data?, for p: Playlist) {
+        if let old = p.coverVersion { try? FileManager.default.removeItem(at: Paths.playlistCover(p.id, old)) }
+        guard let data, let img = UIImage(data: data) else {
+            app.playlists.update(p.id) { $0.coverVersion = nil }
+            return
+        }
+        let side = min(img.size.width, img.size.height)
+        let target = CGSize(width: 800, height: 800)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        let square = renderer.image { _ in
+            let scale = target.width / max(side, 1)
+            let w = img.size.width * scale, h = img.size.height * scale
+            img.draw(in: CGRect(x: (target.width - w) / 2, y: (target.height - h) / 2, width: w, height: h))
+        }
+        let version = (p.coverVersion ?? 0) + 1
+        guard let jpg = square.jpegData(compressionQuality: 0.85),
+              (try? jpg.write(to: Paths.playlistCover(p.id, version), options: .atomic)) != nil else {
+            app.show("Couldn't save the photo")
+            return
+        }
+        withAnimation { app.playlists.update(p.id) { $0.coverVersion = version } }
+        app.haptic(.success)
     }
 
     private func description(_ p: Playlist) -> String {

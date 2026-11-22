@@ -140,6 +140,7 @@ extension View {
             case .search: SearchView()
             case .artist(let a): ArtistView(artist: a)
             case .artistMore(let a): ArtistMoreView(artist: a)
+            case .discography(let a): DiscographyView(artist: a)
             case .album(let a): AlbumView(album: a)
             case .playlist(let id): PlaylistView(playlistID: id)
             case .liked: LikedSongsView()

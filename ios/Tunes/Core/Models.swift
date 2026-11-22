@@ -259,6 +259,8 @@ struct Playlist: Codable, Hashable, Identifiable {
     var createdAt: Date
     var refreshedAt: Date?
     var lastPlayedAt: Date?
+    /// Set when the user picked their own cover photo; bumped on every change so cached images refresh.
+    var coverVersion: Int?
 
     init(name: String, kind: Kind, songs: [Song] = [], colorHex: String) {
         id = UUID()
@@ -273,7 +275,7 @@ struct Playlist: Codable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, songs, pinned, keepDownloaded, wifiOnly, colorHex, createdAt, refreshedAt, lastPlayedAt
+        case id, name, kind, songs, pinned, keepDownloaded, wifiOnly, colorHex, createdAt, refreshedAt, lastPlayedAt, coverVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -289,6 +291,7 @@ struct Playlist: Codable, Hashable, Identifiable {
         createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? .now
         refreshedAt = try? c.decodeIfPresent(Date.self, forKey: .refreshedAt)
         lastPlayedAt = try? c.decodeIfPresent(Date.self, forKey: .lastPlayedAt)
+        coverVersion = try? c.decodeIfPresent(Int.self, forKey: .coverVersion)
     }
 
     var isManual: Bool { if case .manual = kind { return true } else { return false } }

@@ -101,6 +101,7 @@ enum Route: Hashable {
     case search
     case artist(Artist)
     case artistMore(Artist)
+    case discography(Artist)
     case album(Album)
     case playlist(UUID)
     case liked

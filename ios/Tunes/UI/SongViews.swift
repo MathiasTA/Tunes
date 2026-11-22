@@ -34,6 +34,12 @@ struct SongMenuView: View {
                     .listRowBackground(Color.clear)
                 }
                 Section {
+                    if downloaded {
+                        row("Play", "play.fill") { app.player.play([shown], context: shown.title); dismiss() }
+                    } else if shown.previewURL != nil && !app.prefs.data.offline {
+                        let previewing = app.player.previewingID == song.id
+                        row(previewing ? "Stop preview" : "Play preview", previewing ? "stop.fill" : "play.circle") { app.player.togglePreview(shown) }
+                    }
                     let liked = app.library.isLiked(song.id)
                     row(liked ? "Liked" : "Like", liked ? "heart.fill" : "heart", tint: liked ? look.accent : nil) {
                         app.library.toggleLike(shown)

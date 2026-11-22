@@ -55,9 +55,7 @@ struct ArtistView: View {
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 } header: {
-                    NavigationLink {
-                        DiscographyView(artist: shown, albums: albums)
-                    } label: {
+                    NavigationLink(value: Route.discography(shown)) {
                         HStack(spacing: 4) {
                             SectionLabel(text: "Discography")
                             Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.secondary)
@@ -373,9 +371,10 @@ struct DiscographyView: View {
     }
 
     let artist: Artist
-    let albums: [Album]
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
+    @State private var albums: [Album] = []
+    @State private var loadingAlbums = true
     @State private var filter: Filter = .all
     @State private var newestFirst = true
     @State private var features: [Song]?
@@ -425,7 +424,9 @@ struct DiscographyView: View {
                         }
                     }
                 }
-                if releases.isEmpty {
+                if loadingAlbums {
+                    ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden)
+                } else if releases.isEmpty {
                     Text("Nothing here.").font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -445,6 +446,11 @@ struct DiscographyView: View {
                     }
                 }
             }
+        }
+        .task {
+            guard albums.isEmpty else { return }
+            albums = (try? await Catalog.albums(artist: artist)) ?? []
+            loadingAlbums = false
         }
         .task(id: filter) {
             guard filter == .features, features == nil else { return }
