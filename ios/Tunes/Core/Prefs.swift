@@ -5,16 +5,32 @@ import UIKit
 
 enum ThemeMode: String, Codable, CaseIterable, Identifiable {
     case dark, black, light, auto
-    case midnight, sunset, ocean, aurora, forest, rose
+    case midnight, sunset, ocean, forest, rose
+    case aurora, nebula, lava, lagoon, pastel
     var id: String { rawValue }
     var label: String { self == .rose ? "Rosé" : rawValue.capitalized }
 
     /// The plain themes; everything else draws a gradient (or, for Aurora, moving light) behind the app.
     var isClassic: Bool { [.dark, .black, .light, .auto].contains(self) }
 
+    /// Animated themes: soft colored light drifting slowly behind the app.
+    var isAnimated: Bool { [.aurora, .nebula, .lava, .lagoon, .pastel].contains(self) }
+
+    /// The drifting lights of an animated theme, and how long one slow drift takes (seconds).
+    var lights: (colors: [String], opacity: Double, seconds: Double, stars: Bool) {
+        switch self {
+        case .aurora: (["#10B981", "#8B5CF6", "#0EA5E9"], 0.32, 18, false)
+        case .nebula: (["#C026D3", "#4F46E5", "#06B6D4"], 0.28, 24, true)
+        case .lava: (["#F97316", "#DC2626", "#DB2777"], 0.30, 14, false)
+        case .lagoon: (["#14B8A6", "#22D3EE", "#4ADE80"], 0.26, 20, false)
+        case .pastel: (["#F9A8D4", "#FDBA74", "#C4B5FD"], 0.45, 22, false)
+        default: ([], 0, 0, false)
+        }
+    }
+
     var scheme: ColorScheme? {
         switch self {
-        case .light, .rose: .light
+        case .light, .rose, .pastel: .light
         case .auto: nil
         default: .dark
         }
@@ -28,6 +44,10 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
         case .ocean: ["#03192B", "#053F5C", "#0B7285"]
         case .forest: ["#06140D", "#0F2A1B", "#1F4A2C"]
         case .aurora: ["#050B14", "#07121F", "#050B14"]
+        case .nebula: ["#07051A", "#0B0826", "#07051A"]
+        case .lava: ["#130606", "#1C0909", "#130606"]
+        case .lagoon: ["#03161A", "#052126", "#03161A"]
+        case .pastel: ["#FFF9F5", "#FDF4FF", "#FFF9F5"]
         case .rose: ["#FFF1F2", "#FCE7F3", "#EDE9FE"]
         default: []
         }
@@ -41,6 +61,10 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
         case .ocean: "#041E33"
         case .forest: "#08180F"
         case .aurora: "#070F1A"
+        case .nebula: "#0A0820"
+        case .lava: "#1A0909"
+        case .lagoon: "#041B20"
+        case .pastel: "#FFF8F6"
         case .rose: "#FFF5F8"
         default: nil
         }
@@ -54,6 +78,10 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
         case .ocean: "#22D3EE"
         case .forest: "#86EFAC"
         case .aurora: "#34D399"
+        case .nebula: "#E879F9"
+        case .lava: "#FB923C"
+        case .lagoon: "#2DD4BF"
+        case .pastel: "#EC4899"
         case .rose: "#DB2777"
         default: nil
         }
@@ -487,39 +515,69 @@ struct ThemeBackground: View {
         let theme = look.theme
         if theme.isClassic {
             Surface.background(look)
-        } else if theme == .aurora {
-            AuroraBackground(base: Color(hex: theme.gradient[0]))
+        } else if theme.isAnimated {
+            DriftingLights(theme: theme)
+                .id(theme)
         } else {
             LinearGradient(colors: theme.gradient.map { Color(hex: $0) }, startPoint: .top, endPoint: .bottom)
         }
     }
 }
 
-private struct AuroraBackground: View {
-    let base: Color
+/// Three large, heavily blurred lights that drift slowly back and forth (plus optional twinkling stars).
+/// Only offsets and opacity animate, so it's cheap to draw.
+private struct DriftingLights: View {
+    let theme: ThemeMode
     @State private var drift = false
+    @State private var twinkle = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let l = theme.lights
         GeometryReader { g in
             let w = g.size.width, h = g.size.height
             ZStack {
-                base
-                blob("#10B981", size: w * 1.1).offset(x: drift ? -w * 0.25 : w * 0.15, y: drift ? -h * 0.30 : -h * 0.18)
-                blob("#8B5CF6", size: w * 1.0).offset(x: drift ? w * 0.30 : -w * 0.10, y: drift ? -h * 0.05 : -h * 0.25)
-                blob("#0EA5E9", size: w * 0.9).offset(x: drift ? -w * 0.05 : w * 0.25, y: drift ? h * 0.30 : h * 0.15)
+                Color(hex: theme.gradient.first ?? "#000000")
+                if l.colors.count == 3 {
+                    blob(l.colors[0], l.opacity, size: w * 1.1)
+                        .offset(x: drift ? -w * 0.25 : w * 0.15, y: drift ? -h * 0.30 : -h * 0.18)
+                    blob(l.colors[1], l.opacity, size: w * 1.0)
+                        .offset(x: drift ? w * 0.30 : -w * 0.10, y: drift ? -h * 0.05 : -h * 0.25)
+                    blob(l.colors[2], l.opacity, size: w * 0.9)
+                        .offset(x: drift ? -w * 0.05 : w * 0.25, y: drift ? h * 0.30 : h * 0.15)
+                }
+                if l.stars { stars(w: w, h: h) }
             }
             .frame(width: w, height: h)
             .clipped()
         }
         .onAppear {
             guard !reduceMotion, AppModel.shared.prefs.data.animations else { return }
-            withAnimation(.easeInOut(duration: 18).repeatForever(autoreverses: true)) { drift = true }
+            withAnimation(.easeInOut(duration: l.seconds).repeatForever(autoreverses: true)) { drift = true }
+            withAnimation(.easeInOut(duration: 3.5).repeatForever(autoreverses: true)) { twinkle = true }
         }
     }
 
-    private func blob(_ hex: String, size: CGFloat) -> some View {
-        Circle().fill(Color(hex: hex).opacity(0.32)).frame(width: size, height: size).blur(radius: 90)
+    private func blob(_ hex: String, _ opacity: Double, size: CGFloat) -> some View {
+        Circle().fill(Color(hex: hex).opacity(opacity)).frame(width: size, height: size).blur(radius: 90)
+    }
+
+    /// Tiny stars in fixed spots; half of them fade in while the other half fade out.
+    private func stars(w: CGFloat, h: CGFloat) -> some View {
+        var rng = SeededRNG(seed: 42)
+        let points = (0..<46).map { i -> (CGFloat, CGFloat, CGFloat, Bool) in
+            (CGFloat.random(in: 0...w, using: &rng), CGFloat.random(in: 0...h, using: &rng),
+             CGFloat.random(in: 1...2.4, using: &rng), i.isMultiple(of: 2))
+        }
+        return ZStack {
+            ForEach(points.indices, id: \.self) { i in
+                let p = points[i]
+                Circle().fill(.white)
+                    .frame(width: p.2, height: p.2)
+                    .opacity((p.3 == twinkle) ? 0.85 : 0.2)
+                    .position(x: p.0, y: p.1)
+            }
+        }
     }
 }
 

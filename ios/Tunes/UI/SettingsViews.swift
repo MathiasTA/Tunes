@@ -381,7 +381,7 @@ struct AppearanceView: View {
                 ThemeGrid()
                     .padding(.vertical, 6)
             } header: { Text("Theme") } footer: {
-                Text("Dark uses soft charcoal greys. Black is pure black, which saves battery on iPhone X and newer (except XR and 11). Auto follows your iPhone's light/dark setting. The others paint a gradient behind the whole app; Aurora's colors drift slowly. Picking one of those also picks a matching accent color, which you can change below.")
+                Text("Dark uses soft charcoal greys. Black is pure black, which saves battery on iPhone X and newer (except XR and 11). Auto follows your iPhone's light/dark setting. Midnight to Rosé paint a gradient behind the whole app. Aurora, Nebula, Lava, Lagoon and Pastel have soft light that drifts slowly (Nebula adds twinkling stars); they hold still if Animations is off. Picking one of those also picks a matching accent color, which you can change below.")
             }
             Section {
                 HStack {
@@ -508,11 +508,18 @@ struct ThemeGrid: View {
             case .light: Color(white: 0.97)
             case .auto:
                 HStack(spacing: 0) { Color(white: 0.97); Color(white: 0.075) }
-            case .aurora:
+            case _ where theme.isAnimated:
+                let l = theme.lights
                 ZStack {
-                    Color(hex: "#050B14")
-                    Circle().fill(Color(hex: "#10B981").opacity(0.6)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
-                    Circle().fill(Color(hex: "#8B5CF6").opacity(0.6)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
+                    Color(hex: theme.gradient.first ?? "#000000")
+                    Circle().fill(Color(hex: l.colors[0]).opacity(0.65)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
+                    Circle().fill(Color(hex: l.colors[1]).opacity(0.65)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
+                    if l.stars {
+                        ForEach(0..<6, id: \.self) { i in
+                            Circle().fill(.white).frame(width: 2, height: 2)
+                                .offset(x: CGFloat([-22, -8, 6, 18, -16, 24][i]), y: CGFloat([-20, 12, -14, 18, 4, -4][i]))
+                        }
+                    }
                 }
             default:
                 LinearGradient(colors: theme.gradient.map { Color(hex: $0) }, startPoint: .top, endPoint: .bottom)
