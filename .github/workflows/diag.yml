@@ -1,7 +1,7 @@
 name: Diagnose
 on:
   push:
-    branches: [diagnostics]
+    branches: [diag-deezer]
 jobs:
   deezer:
     runs-on: ubuntu-latest
