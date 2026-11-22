@@ -210,7 +210,8 @@ final class PlaylistStore {
             let cutoff = Date.now.addingTimeInterval(-Double(rule.withinWeeks) * 7 * 86_400)
             var songs: [Song] = []
             for artist in artists.prefix(25) {
-                guard let albums = try? await Catalog.albums(artist: artist, limit: 15) else { continue }
+                let albums = await Catalog.discography(artist: artist)
+                if albums.isEmpty { continue }
                 for album in albums where (album.releaseDay ?? .distantPast) >= cutoff {
                     if !rule.includeLiveAndRemixes && isLiveOrRemix(album.title) { continue }
                     guard let info = try? await Catalog.album(album.id) else { continue }

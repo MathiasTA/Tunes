@@ -1,10 +1,14 @@
 import json, urllib.request, urllib.parse
 def get(path):
     return json.loads(urllib.request.urlopen("https://api.deezer.com/" + path, timeout=20).read())
-for q in ["pardon my french glaive", "pardon my french", 'artist:"glaive" track:"pardon my french"']:
-    r = get("search/track?q=" + urllib.parse.quote(q) + "&limit=10")
-    print("RESULT track search", repr(q), "->", [(t["title"], t["artist"]["name"], t["album"]["title"]) for t in r.get("data", [])][:6])
-r = get("search/album?q=" + urllib.parse.quote("glaive") + "&limit=50")
-print("RESULT album search glaive ->", sorted([(a.get("title"), a["artist"]["id"]) for a in r.get("data", []) if a["artist"]["id"] == 7411938])[:60])
-top = get("artist/7411938/top?limit=50")
-print("RESULT top tracks albums ->", sorted({(t["album"]["title"]) for t in top.get("data", [])}))
+gid=7411938
+q=urllib.parse.quote('artist:"glaive"')
+listed={a["id"]:a["title"] for a in get(f"artist/{gid}/albums?limit=100")["data"]}
+searched={a["id"]:a["title"] for a in get(f"search/album?q={q}&limit=100")["data"] if a["artist"]["id"]==gid}
+songs=get(f"search/track?q={q}&limit=100")["data"]
+top=get(f"artist/{gid}/top?limit=50")["data"]
+fromsongs={t["album"]["id"]:t["album"]["title"] for t in songs+top if t["artist"]["id"]==gid}
+merged=dict(listed); merged.update(searched); merged.update(fromsongs)
+print("RESULT listed", len(listed), "searched", len(searched), "fromsongs", len(fromsongs), "merged", len(merged))
+print("RESULT has Asheghanistan:", 1141203311 in merged, "| extra titles:", sorted(set(merged.values())-set(listed.values())))
+print("RESULT songs search total:", len(songs), [t["title"] for t in songs if "ashegh" in t["title"].lower()])
