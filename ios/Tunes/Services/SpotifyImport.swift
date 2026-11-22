@@ -19,7 +19,7 @@ enum SpotifyImportError: LocalizedError {
         switch self {
         case .badLink: "That doesn't look like a Spotify playlist link."
         case .noTracks: "Couldn't read the songs. Make sure the playlist is public, or import an exported CSV file instead."
-        case .unreadable: "Couldn't read that file."
+        case .unreadable: "Couldn't read that file. It needs a column with song names and one with artist names."
         }
     }
 }
@@ -83,18 +83,49 @@ enum SpotifyImport {
         return cleaned.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? cleaned
     }
 
-    /// CSV from Exportify (or similar): needs "Track Name" and "Artist Name(s)" columns.
+    /// CSV from Exportify (or similar). Exportify's columns include "Track URI", "Track Name",
+    /// "Artist URI(s)", "Artist Name(s)", "Album Name" and "Duration (ms)", so columns are picked by
+    /// their exact meaning, never just by containing the word "artist".
     static func parseCSV(_ text: String) throws -> (name: String, tracks: [ExternalTrack]) {
-        let rows = csvRows(text)
+        let rows = csvRows(text).filter { !($0.count == 1 && $0[0].trimmingCharacters(in: .whitespaces).isEmpty) }
         guard let header = rows.first else { throw SpotifyImportError.unreadable }
-        let lower = header.map { $0.lowercased() }
-        guard let ti = lower.firstIndex(where: { $0.contains("track name") || $0 == "title" || $0 == "name" }),
-              let ai = lower.firstIndex(where: { $0.contains("artist") }) else { throw SpotifyImportError.unreadable }
-        let di = lower.firstIndex(where: { $0.contains("duration") })
+        let names = header.map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+        let sample = rows.dropFirst().prefix(20)
+
+        /// A column is usable for text if its values are names, not Spotify links or IDs.
+        func holdsNames(_ col: Int) -> Bool {
+            let values = sample.compactMap { $0.count > col ? $0[col] : nil }.filter { !$0.isEmpty }
+            guard !values.isEmpty else { return false }
+            let links = values.filter { $0.hasPrefix("spotify:") || $0.hasPrefix("http") }.count
+            return links * 2 < values.count
+        }
+        func pick(_ preferred: [String], excluding bad: [String]) -> Int? {
+            for wanted in preferred {
+                if let i = names.indices.first(where: { names[$0] == wanted && holdsNames($0) }) { return i }
+            }
+            return names.indices.first { i in
+                preferred.contains { names[i].contains($0) } && !bad.contains { names[i].contains($0) } && holdsNames(i)
+            }
+        }
+
+        let skip = ["uri", "url", "id", "album", "genre", "image", "added by", "label"]
+        guard let ti = pick(["track name", "song", "title", "name", "track"], excluding: skip + ["artist"]),
+              let ai = pick(["artist name(s)", "artist name", "artist names", "artists", "artist"], excluding: skip)
+        else { throw SpotifyImportError.unreadable }
+        let di = names.firstIndex { $0.contains("duration") || $0 == "length" || $0 == "time" }
+        let durationInMs = di.map { names[$0].contains("ms") } ?? false
+
         let tracks = rows.dropFirst().compactMap { r -> ExternalTrack? in
-            guard r.count > max(ti, ai), !r[ti].isEmpty else { return nil }
-            let ms = di.flatMap { $0 < r.count ? Double(r[$0]) : nil }
-            return ExternalTrack(title: r[ti], artist: firstArtist(r[ai]), duration: ms.map { $0 / 1000 })
+            guard r.count > max(ti, ai) else { return nil }
+            let title = r[ti].trimmingCharacters(in: .whitespaces)
+            guard !title.isEmpty else { return nil }
+            var duration: Double?
+            if let di, di < r.count {
+                let raw = r[di].trimmingCharacters(in: .whitespaces)
+                if raw.contains(":") { duration = YouTubeSearch.parseDuration(raw) }
+                else if let v = Double(raw) { duration = durationInMs || v > 10_000 ? v / 1000 : v }
+            }
+            return ExternalTrack(title: title, artist: firstArtist(r[ai]), duration: duration)
         }
         guard !tracks.isEmpty else { throw SpotifyImportError.noTracks }
         return ("Imported playlist", tracks)
