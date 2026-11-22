@@ -12,6 +12,13 @@ enum SearchHistory {
     }
 }
 
+extension View {
+    /// Saves the search to "Recent" when the user taps one of its results.
+    func rememberSearch(_ query: String) -> some View {
+        simultaneousGesture(TapGesture().onEnded { SearchHistory.remember(query) })
+    }
+}
+
 /// Search pushed as its own page (kept for links into search from elsewhere).
 struct SearchView: View {
     @State private var query = ""
@@ -65,7 +72,7 @@ struct SearchResultsList: View {
             }
             if !localSongs.isEmpty {
                 Section {
-                    ForEach(localSongs.prefix(offline ? 50 : 4)) { SongRow(song: $0, queue: localSongs, context: "Your library") }
+                    ForEach(localSongs.prefix(offline ? 50 : 4)) { SongRow(song: $0, queue: localSongs, context: "Your library").rememberSearch(query) }
                 } header: { SectionLabel(text: "In your library") }
             }
             if !offline {
@@ -79,6 +86,7 @@ struct SearchResultsList: View {
                                         ArtistCircle(artist: a, size: 84, caption: a.fans.map { "\(Fmt.count($0)) fans" })
                                     }
                                     .buttonStyle(PressStyle())
+                                    .rememberSearch(query)
                                 }
                             }
                         }
@@ -87,12 +95,12 @@ struct SearchResultsList: View {
                 }
                 if !results.songs.isEmpty {
                     Section {
-                        ForEach(results.songs) { SongRow(song: $0, queue: results.songs, context: "Search") }
+                        ForEach(results.songs) { SongRow(song: $0, queue: results.songs, context: "Search").rememberSearch(query) }
                     } header: { SectionLabel(text: "Songs") }
                 }
                 if !results.albums.isEmpty {
                     Section {
-                        ForEach(results.albums) { a in NavigationLink(value: Route.album(a)) { AlbumRow(album: a) } }
+                        ForEach(results.albums) { a in NavigationLink(value: Route.album(a)) { AlbumRow(album: a) }.rememberSearch(query) }
                     } header: { SectionLabel(text: "Albums") }
                 }
             }

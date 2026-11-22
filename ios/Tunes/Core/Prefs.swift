@@ -284,6 +284,10 @@ struct PrefsData: Codable, Equatable {
     var autoBackup = true
     var backupFrequency: BackupFrequency = .daily
     var backupKeep = 5
+    /// Include your own pictures (custom covers, playlist photos, profile picture) in backups.
+    var backupImages = true
+    /// Include the audio of songs you imported from files (these can't be downloaded again).
+    var backupOwnFiles = true
     var lastBackup: Date?
 
     // Connections
@@ -316,6 +320,7 @@ struct PrefsData: Codable, Equatable {
         backupFolderName = try? c.decodeIfPresent(String.self, forKey: .backupFolderName)
         autoBackup = v(.autoBackup, d.autoBackup); backupFrequency = v(.backupFrequency, d.backupFrequency)
         backupKeep = v(.backupKeep, d.backupKeep)
+        backupImages = v(.backupImages, d.backupImages); backupOwnFiles = v(.backupOwnFiles, d.backupOwnFiles)
         lastBackup = try? c.decodeIfPresent(Date.self, forKey: .lastBackup)
         ticketmasterKey = v(.ticketmasterKey, d.ticketmasterKey); concertCity = v(.concertCity, d.concertCity)
         concertRadiusKm = v(.concertRadiusKm, d.concertRadiusKm)
@@ -433,9 +438,15 @@ struct Surface {
     static func grouped(_ look: Look) -> Color {
         look.black ? .black : dynamic(light: .systemGroupedBackground, dark: gray(0.075))
     }
-    /// Row color inside grouped settings lists.
+    /// Row color inside grouped settings lists: slightly see-through, so the theme shows behind.
     static func groupedRow(_ look: Look) -> Color {
-        look.black ? Color(white: 0.09) : dynamic(light: .secondarySystemGroupedBackground, dark: gray(0.14))
+        switch look.theme {
+        case .black: return Color.white.opacity(0.09)
+        case .dark: return Color.white.opacity(0.075)
+        case .light: return Color.white.opacity(0.85)
+        case .auto: return dynamic(light: UIColor.white.withAlphaComponent(0.85), dark: UIColor.white.withAlphaComponent(0.075))
+        default: return look.theme.scheme == .light ? Color.white.opacity(0.55) : Color.white.opacity(0.085)
+        }
     }
 }
 
@@ -466,6 +477,13 @@ struct SettingsLabelStyle: LabelStyle {
 
 extension View {
     func themedForm() -> some View { modifier(ThemedForm()) }
+    /// Applied to each Section of a settings list.
+    func themedRow() -> some View { modifier(ThemedRow()) }
+}
+
+struct ThemedRow: ViewModifier {
+    @Environment(\.look) private var look
+    func body(content: Content) -> some View { content.listRowBackground(Surface.groupedRow(look)) }
 }
 
 /// A switch drawn by Tunes, so it follows the accent color and the Haptics setting
@@ -519,7 +537,40 @@ struct ThemeBackground: View {
             DriftingLights(theme: theme)
                 .id(theme)
         } else {
-            LinearGradient(colors: theme.gradient.map { Color(hex: $0) }, startPoint: .top, endPoint: .bottom)
+            GlowGradient(theme: theme)
+        }
+    }
+}
+
+/// A gradient with two soft, still glows for depth, plus a gentle darkening at the bottom so text stays readable.
+private struct GlowGradient: View {
+    let theme: ThemeMode
+    var body: some View {
+        let c = theme.gradient.map { Color(hex: $0) }
+        let light = theme.scheme == .light
+        GeometryReader { g in
+            let w = g.size.width, h = g.size.height
+            ZStack {
+                LinearGradient(colors: c, startPoint: .topLeading, endPoint: .bottomTrailing)
+                RadialGradient(colors: [glow.0.opacity(light ? 0.35 : 0.30), .clear], center: .topTrailing,
+                               startRadius: 0, endRadius: max(w, h) * 0.7)
+                RadialGradient(colors: [glow.1.opacity(light ? 0.30 : 0.22), .clear],
+                               center: UnitPoint(x: 0.1, y: 0.75), startRadius: 0, endRadius: max(w, h) * 0.6)
+                LinearGradient(colors: [.clear, (light ? Color.white : Color.black).opacity(0.25)],
+                               startPoint: UnitPoint(x: 0.5, y: 0.55), endPoint: .bottom)
+            }
+        }
+    }
+
+    /// Two glow colors per theme, picked to sit nicely on its gradient.
+    private var glow: (Color, Color) {
+        switch theme {
+        case .midnight: (Color(hex: "#6366F1"), Color(hex: "#C084FC"))
+        case .sunset: (Color(hex: "#F97316"), Color(hex: "#EC4899"))
+        case .ocean: (Color(hex: "#22D3EE"), Color(hex: "#3B82F6"))
+        case .forest: (Color(hex: "#4ADE80"), Color(hex: "#A3E635"))
+        case .rose: (Color(hex: "#F9A8D4"), Color(hex: "#C4B5FD"))
+        default: (.clear, .clear)
         }
     }
 }

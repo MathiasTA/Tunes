@@ -1,15 +1,43 @@
 import Foundation
 import Observation
 
-/// Everything except the audio files, in one JSON file.
+/// Library info, playlists, stats and settings in one JSON file, optionally with your own pictures.
+/// Audio of songs imported from files is copied next to it, into the "Tunes Imported Songs" folder.
 struct BackupFile: Codable {
-    var version = 1
+    var version = 2
     var createdAt = Date.now
     var prefs: PrefsData
     var library: [LibraryEntry]
     var followed: [Artist]
     var playlists: [Playlist]
     var plays: [PlayRecord]
+    /// File name in the Artwork folder → image data. Only pictures that can't be fetched again.
+    var images: [String: Data]? = nil
+}
+
+enum BackupFiles {
+    static let ownSongsFolder = "Tunes Imported Songs"
+
+    /// Pictures the user made or picked: profile photo, playlist photos, custom song covers and covers of imported songs.
+    @MainActor
+    static func customImageNames() -> [String] {
+        let app = AppModel.shared
+        var names: [String] = []
+        if app.prefs.data.hasAvatarPhoto { names.append(Paths.avatar.lastPathComponent) }
+        for p in app.playlists.playlists { if let v = p.coverVersion { names.append(Paths.playlistCover(p.id, v).lastPathComponent) } }
+        for e in app.library.entries {
+            let isFile: Bool = { if case .file = e.source { return true } else { return false } }()
+            if e.hasCustomArtwork || isFile { names.append(Paths.songArtwork(e.id).lastPathComponent) }
+        }
+        return names
+    }
+
+    @MainActor
+    static func ownSongFileNames() -> [String] {
+        AppModel.shared.library.entries.compactMap { e in
+            if case .file = e.source { return e.fileName } else { return nil }
+        }
+    }
 }
 
 @MainActor @Observable
@@ -52,9 +80,16 @@ final class BackupManager {
         app.stats.flush()
         var prefs = app.prefs.data
         prefs.backupBookmark = nil
-        let file = BackupFile(prefs: prefs, library: app.library.entries, followed: app.library.followed,
+        var file = BackupFile(prefs: prefs, library: app.library.entries, followed: app.library.followed,
                               playlists: app.playlists.playlists, plays: app.stats.records)
         let keep = app.prefs.data.backupKeep
+        let imageNames = app.prefs.data.backupImages ? BackupFiles.customImageNames() : []
+        let ownFiles = app.prefs.data.backupOwnFiles ? BackupFiles.ownSongFileNames() : []
+        if !imageNames.isEmpty {
+            var images: [String: Data] = [:]
+            for n in imageNames { if let d = try? Data(contentsOf: Paths.artDir.appending(path: n)) { images[n] = d } }
+            file.images = images
+        }
         do {
             let data = try Store.encoder.encode(file)
             try await Task.detached(priority: .utility) {
@@ -64,6 +99,18 @@ final class BackupManager {
                 f.dateFormat = "yyyy-MM-dd HH.mm"
                 let url = folder.appending(path: "Tunes Backup \(f.string(from: .now)).json")
                 try data.write(to: url, options: .atomic)
+                // Songs imported from files: copy any that aren't in the backup folder yet.
+                if !ownFiles.isEmpty {
+                    let dir = folder.appending(path: BackupFiles.ownSongsFolder, directoryHint: .isDirectory)
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    for name in ownFiles {
+                        let src = Paths.audioDir.appending(path: name), dst = dir.appending(path: name)
+                        if Paths.fileSize(dst) != Paths.fileSize(src) {
+                            try? FileManager.default.removeItem(at: dst)
+                            try? FileManager.default.copyItem(at: src, to: dst)
+                        }
+                    }
+                }
                 // Keep only the newest backups.
                 let all = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.creationDateKey])) ?? []
                 let backups = all.filter { $0.lastPathComponent.hasPrefix("Tunes Backup ") && $0.pathExtension == "json" }
@@ -98,6 +145,27 @@ final class BackupManager {
             let data = try Data(contentsOf: url)
             let file = try Store.decoder.decode(BackupFile.self, from: data)
             app.player.stop()
+            // Pictures saved inside the backup.
+            for (name, image) in file.images ?? [:] where !name.contains("/") {
+                try? image.write(to: Paths.artDir.appending(path: name), options: .atomic)
+            }
+            // Songs imported from files: copied back from the backup folder, if Tunes can reach it.
+            let own = file.library.compactMap { e -> String? in if case .file = e.source { return e.fileName } else { return nil } }
+            var ownMissing = 0
+            if !own.isEmpty {
+                let folders = [resolveFolder(), url.deletingLastPathComponent()].compactMap { $0 }
+                for name in own where !FileManager.default.fileExists(atPath: Paths.audioDir.appending(path: name).path) {
+                    var found = false
+                    for folder in folders {
+                        let access = folder.startAccessingSecurityScopedResource()
+                        let src = folder.appending(path: BackupFiles.ownSongsFolder).appending(path: name)
+                        if (try? FileManager.default.copyItem(at: src, to: Paths.audioDir.appending(path: name))) != nil { found = true }
+                        if access { folder.stopAccessingSecurityScopedResource() }
+                        if found { break }
+                    }
+                    if !found { ownMissing += 1 }
+                }
+            }
             var prefs = file.prefs
             prefs.backupBookmark = app.prefs.data.backupBookmark
             prefs.backupFolderName = app.prefs.data.backupFolderName
@@ -107,7 +175,9 @@ final class BackupManager {
             app.playlists.replaceAll(file.playlists)
             app.stats.replaceAll(file.plays)
             missingAfterRestore = file.library.filter { !app.library.isDownloaded($0.id) && $0.id > 0 }.map(\.song)
-            lastError = nil
+            lastError = ownMissing > 0
+                ? "Restored, but \(ownMissing) song\(ownMissing == 1 ? "" : "s") you imported from files weren't found. Choose the backup folder that has the \"\(BackupFiles.ownSongsFolder)\" folder in it, then restore again."
+                : nil
         } catch {
             lastError = "Couldn't restore: \(error.localizedDescription)"
         }

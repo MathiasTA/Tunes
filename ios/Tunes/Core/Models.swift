@@ -201,10 +201,11 @@ struct ChartSource: Codable, Hashable, Identifiable {
 
 struct AutoRule: Codable, Hashable {
     enum Source: String, Codable, CaseIterable, Identifiable {
-        case newReleases, mostPlayed, forgotten, similar, chart
+        case dailyMix, newReleases, mostPlayed, forgotten, similar, chart
         var id: String { rawValue }
         var title: String {
             switch self {
+            case .dailyMix: "Daily mix"
             case .newReleases: "New releases"
             case .mostPlayed: "Your most played"
             case .forgotten: "Forgotten favorites"
@@ -214,6 +215,7 @@ struct AutoRule: Codable, Hashable {
         }
         var detail: String {
             switch self {
+            case .dailyMix: "Your favorites mixed with new finds around one of your top artists. New every day"
             case .newReleases: "From artists you listen to and follow"
             case .mostPlayed: "Like \"On Repeat\""
             case .forgotten: "Played a lot, not lately"
@@ -229,6 +231,8 @@ struct AutoRule: Codable, Hashable {
     var withinWeeks: Int
     var includeLiveAndRemixes: Bool
     var chart: ChartSource?
+    /// Daily mixes: which of your top artists the mix is built around (1 = your most played).
+    var mix: Int?
 
     init(source: Source, maxSongs: Int = 30, artists: [Artist] = [], withinWeeks: Int = 4,
          includeLiveAndRemixes: Bool = false, chart: ChartSource? = nil) {

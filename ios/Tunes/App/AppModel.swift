@@ -31,6 +31,18 @@ final class AppModel {
     var toast: String?
 
     /// Opens a page from anywhere (player, menus, sheets).
+    /// Bumped when Home's tab is tapped while already on Home's first page (scroll up, close search).
+    var homeReselect = 0
+
+    /// Tapping the tab you're already on: go back to its first page, or if you're there, to the top.
+    func reselect(_ t: Tab) {
+        switch t {
+        case .home: if homePath.isEmpty { homeReselect += 1 } else { homePath.removeAll() }
+        case .library: libraryPath.removeAll()
+        case .stats: statsPath.removeAll()
+        }
+    }
+
     func navigate(_ route: Route) {
         sheet = nil
         showPlayer = false
@@ -46,11 +58,13 @@ final class AppModel {
     private init() {}
 
     func onLaunch() {
+        UIApplication.shared.beginReceivingRemoteControlEvents()
         guard !launched else { return }
         launched = true
         player.updateRoute()
         player.restoreSession()
         playlists.createDefaultsIfNeeded()
+        playlists.createDailyMixesIfNeeded()
         playlists.syncHomeCharts(prefs.data.homeCharts)
         library.analyzeMissing()
         if prefs.data.autoRemoveUnplayed {

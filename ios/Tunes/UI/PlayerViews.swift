@@ -378,6 +378,7 @@ struct QueueView: View {
                             if p.isPlaying { Image(systemName: "waveform").foregroundStyle(look.accent).symbolEffect(.variableColor.iterative) }
                         }
                     } header: { SectionLabel(text: "Now playing") }
+.themedRow()
                 }
                 if !p.userQueue.isEmpty {
                     Section {
@@ -389,6 +390,7 @@ struct QueueView: View {
                     } header: {
                         HStack { SectionLabel(text: "Next in queue"); Spacer(); Button("Clear") { p.clearUserQueue() }.font(.caption.bold()) }
                     }
+.themedRow()
                 }
                 Section {
                     ForEach(Array(p.upcomingContext.enumerated()), id: \.offset) { i, id in
@@ -399,6 +401,7 @@ struct QueueView: View {
                     .onMove { p.moveContext(from: $0, to: $1) }
                     if p.upcomingContext.isEmpty { Text("Nothing more after this.").font(.footnote).foregroundStyle(.secondary) }
                 } header: { SectionLabel(text: "Next from: \(p.contextName)") }
+.themedRow()
             }
             .environment(\.editMode, .constant(.active))
             .themedForm()
@@ -581,6 +584,7 @@ struct OutputView: View {
                         Spacer()
                     }
                 }
+.themedRow()
                 Section {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -593,6 +597,7 @@ struct OutputView: View {
                 } footer: {
                     Text("Google Home and Nest speakers work over Bluetooth: pair them once in the Google Home app, then pick them here.")
                 }
+.themedRow()
                 Section {
                     NavigationLink {
                         SoundSettingsView()
@@ -604,6 +609,7 @@ struct OutputView: View {
                         }
                     }
                 }
+.themedRow()
             }
             .themedForm()
             .navigationTitle("Play on")

@@ -24,6 +24,13 @@ struct LibraryView: View {
 
             chips.listRowSeparator(.hidden).listRowBackground(Color.clear)
 
+            if DownloadsBar.isVisible(app.library) {
+                LibraryDownloadCard()
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+            }
+
             switch mode {
             case .playlists: playlistRows
             case .songs: songRows
@@ -151,7 +158,7 @@ struct LibraryView: View {
         .buttonStyle(.plain)
         let list = songs
         ForEach(list) { s in
-            SongRow(song: s, queue: list, context: "Your library")
+            SongRow(song: s, queue: list, context: "Your library", likeOnTrailingSwipe: false)
                 .swipeActions {
                     Button(role: .destructive) {
                         app.player.removeSongs([s.id])
@@ -305,6 +312,7 @@ struct AddToPlaylistView: View {
                         .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
+.themedRow()
                 Section {
                     Button {
                         for s in songs where !app.library.isLiked(s.id) { app.library.toggleLike(s) }
@@ -329,6 +337,7 @@ struct AddToPlaylistView: View {
                         }
                     }
                 }
+.themedRow()
             }
             .themedForm()
             .navigationTitle(songs.count == 1 ? "Add to playlist" : "Add \(songs.count) songs")

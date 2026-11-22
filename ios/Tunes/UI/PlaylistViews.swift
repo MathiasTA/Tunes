@@ -8,6 +8,7 @@ struct PlaylistView: View {
     @State private var renaming = false
     @State private var newName = ""
     @State private var editing = false
+    @State private var exportFile: ExportFile?
     @State private var pickingCover = false
     @State private var coverItem: PhotosPickerItem?
 
@@ -85,6 +86,7 @@ struct PlaylistView: View {
                         .disabled(downloadedCount == 0)
                         .accessibilityLabel("Play")
                     }
+                    ListDownloadProgress(songs: p.songs)
                     if downloadedCount == 0 && !p.songs.isEmpty {
                         Button { app.library.downloadAll(p.songs) } label: {
                             Label("Download all \(p.songs.count) songs to play them", systemImage: "arrow.down.circle").font(.subheadline.weight(.semibold))
@@ -105,7 +107,7 @@ struct PlaylistView: View {
                         if p.isChart {
                             Text("\(i + 1)").font(.subheadline.weight(.semibold).monospacedDigit()).foregroundStyle(.secondary).frame(width: 30)
                         }
-                        SongRow(song: s, queue: songs, context: p.name, playlistID: p.id)
+                        SongRow(song: s, queue: songs, context: p.name, playlistID: p.id, likeOnTrailingSwipe: !p.isManual)
                     }
                 }
                 .onDelete(perform: deleteAction)
@@ -130,6 +132,7 @@ struct PlaylistView: View {
         }
         .refreshable { await app.playlists.refresh(p.id, force: true) }
         .task { await app.playlists.refresh(p.id) }
+        .sheet(item: $exportFile) { f in ActivityView(items: [f.url]).ignoresSafeArea() }
         .photosPicker(isPresented: $pickingCover, selection: $coverItem, matching: .images)
         .onChange(of: coverItem) { _, item in
             guard let item else { return }
@@ -163,6 +166,13 @@ struct PlaylistView: View {
             }
         }
         Button { app.sheet = .addToPlaylist(p.songs) } label: { Label("Add all to another playlist", systemImage: "plus.square.on.square") }
+        Menu {
+            Button { exportFile = PlaylistExport.csv(p) } label: { Label("CSV file (works with Tunes & Exportify)", systemImage: "doc.text") }
+            Button {
+                UIPasteboard.general.string = PlaylistExport.text(p)
+                app.show("Copied \(p.songs.count) songs")
+            } label: { Label("Copy as text", systemImage: "doc.on.doc") }
+        } label: { Label("Export playlist", systemImage: "square.and.arrow.up") }
         Button(role: .destructive) { app.playlists.delete(p.id); app.navigateBack() } label: { Label("Delete playlist", systemImage: "trash") }
     }
 
@@ -214,6 +224,7 @@ struct PlaylistView: View {
             case .forgotten: return "Songs you loved but haven't played in two months show up here."
             case .newReleases: return "New songs from artists you listen to and follow show up here."
             case .similar: return "Pull down to find artists like yours."
+            case .dailyMix: return "Listen to a few artists and your daily mixes fill up. They change every day."
             case .chart: return "Pull down to load the chart."
             }
         }
@@ -278,6 +289,7 @@ struct BrowseChartsView: View {
             } footer: {
                 Text("Drag to reorder, swipe to remove.")
             }
+.themedRow()
 
             Section {
                 Picker("Type", selection: $tab) { ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
@@ -313,6 +325,7 @@ struct BrowseChartsView: View {
                 }
                 if tab != .countries && items.isEmpty { ProgressView().frame(maxWidth: .infinity) }
             }
+.themedRow()
         }
         .environment(\.editMode, .constant(.active))
         .themedForm()
@@ -352,6 +365,7 @@ struct AutoPlaylistEditor: View {
         NavigationStack {
             Form {
                 Section("Name") { TextField("Name", text: $name) }
+.themedRow()
                 Section("Songs come from") {
                     Picker("Source", selection: $rule.source) {
                         ForEach(AutoRule.Source.allCases) { s in
@@ -361,8 +375,12 @@ struct AutoPlaylistEditor: View {
                     .pickerStyle(.inline)
                     .labelsHidden()
                 }
+.themedRow()
                 Section("Rules") {
                     Stepper("Max songs: \(rule.maxSongs)", value: $rule.maxSongs, in: 10...200, step: 10)
+                    if rule.source == .dailyMix {
+                        Stepper("Built around your #\(rule.mix ?? 1) artist", value: Binding(get: { rule.mix ?? 1 }, set: { rule.mix = $0 }), in: 1...6)
+                    }
                     if rule.source == .newReleases {
                         Stepper("Released within \(rule.withinWeeks) week\(rule.withinWeeks == 1 ? "" : "s")", value: $rule.withinWeeks, in: 1...26)
                     }
@@ -371,6 +389,7 @@ struct AutoPlaylistEditor: View {
                     }
                     Toggle("Keep downloaded", isOn: $keepDownloaded)
                 }
+.themedRow()
                 if rule.source == .newReleases || rule.source == .similar {
                     Section {
                         if rule.artists.isEmpty {
@@ -390,6 +409,7 @@ struct AutoPlaylistEditor: View {
                             } label: { HStack { a.picture(32); Text(a.name).foregroundStyle(.primary) } }
                         }
                     } header: { Text("Artists") } footer: { Text("Leave empty to follow your listening automatically.") }
+.themedRow()
                 }
                 if rule.source == .chart {
                     Section("Chart") {
@@ -400,11 +420,13 @@ struct AutoPlaylistEditor: View {
                             ForEach(chartChoices, id: \.id) { Text($0.name).tag($0.id) }
                         }
                     }
+.themedRow()
                 }
                 if let id = playlistID {
                     Section {
                         Button("Delete playlist", role: .destructive) { app.playlists.delete(id); dismiss(); app.navigateBack() }
                     }
+.themedRow()
                 }
             }
             .themedForm()
@@ -458,4 +480,46 @@ struct AutoPlaylistEditor: View {
             app.navigate(.playlist(p.id))
         }
     }
+}
+
+
+struct ExportFile: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// Turns a playlist into a CSV file (same columns as Exportify, so Tunes and other apps can import it) or plain text.
+enum PlaylistExport {
+    static func csv(_ p: Playlist) -> ExportFile? {
+        func field(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+        var lines = ["Track Name,Artist Name(s),Album Name,Duration (ms)"]
+        for s in p.songs {
+            lines.append([field(s.title), field(s.allArtists.map(\.name).joined(separator: ", ")),
+                          field(s.album?.title ?? ""), String(Int(s.duration * 1000))].joined(separator: ","))
+        }
+        let safe = p.name.components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>")).joined(separator: "-")
+        let dir = FileManager.default.temporaryDirectory.appending(path: "Export", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appending(path: "\(safe.isEmpty ? "Playlist" : safe).csv")
+        do {
+            try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            return ExportFile(url: url)
+        } catch {
+            return nil
+        }
+    }
+
+    static func text(_ p: Playlist) -> String {
+        ([p.name, ""] + p.songs.enumerated().map { "\($0.offset + 1). \($0.element.artistLine) – \($0.element.title)" })
+            .joined(separator: "\n")
+    }
+}
+
+/// The iOS share sheet.
+struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }

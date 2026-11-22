@@ -18,17 +18,20 @@ struct SettingsView: View {
                 NavigationLink { AppearanceView() } label: { Label("Appearance", systemImage: "paintbrush") }
                 NavigationLink { ConnectionsView() } label: { Label("Connections", systemImage: "link") }
             } header: { Text("General") }
+.themedRow()
             Section {
                 NavigationLink { SoundSettingsView() } label: { Label("Sound, EQ & crossfade", systemImage: "slider.vertical.3") }
                 Toggle(isOn: $prefs.data.lyricsEnabled) { Label("Show lyrics", systemImage: "quote.bubble") }
             } header: { Text("Playback") } footer: {
                 Text("Show lyrics: adds the lyrics card under the player and lets Tunes look up lyrics online.")
             }
+.themedRow()
             Section("Your music") {
                 NavigationLink { StorageView() } label: { Label("Storage & downloads", systemImage: "internaldrive") }
                 NavigationLink { BackupView() } label: { Label("Backup & import", systemImage: "externaldrive.badge.icloud") }
                 NavigationLink { CustomizeHomeView() } label: { Label("Customize Home", systemImage: "house") }
             }
+.themedRow()
             Section {
                 Toggle("Download only on Wi-Fi", isOn: $prefs.data.downloadWifiOnly)
                 Toggle("Play previews on mobile data", isOn: $prefs.data.previewsOnCellular)
@@ -36,17 +39,20 @@ struct SettingsView: View {
             } header: { Text("Mobile data") } footer: {
                 Text("Download only on Wi-Fi: songs you download on mobile data wait in line and start when you're on Wi-Fi. Previews: the 30-second clips you hear when tapping a song you don't have. Artist extras: shows, similar artists and bio on artist pages; when this is on, they stay blurred on mobile data until you tap Load.")
             }
+.themedRow()
             Section {
                 Toggle("Backup download method", isOn: $prefs.data.allowRemoteExtraction)
             } header: { Text("Advanced") } footer: {
                 Text("If a song won't download, this lets Tunes ask a helper server for the audio link. Off by default.")
             }
+.themedRow()
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                 LabeledContent("Songs downloaded", value: "\(app.library.entries.count)")
                 LabeledContent("Catalog", value: "Deezer")
                 LabeledContent("Lyrics", value: "LRCLIB")
             }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Settings")
@@ -98,9 +104,11 @@ struct SoundSettingsView: View {
             } header: { Text("Sound profile") } footer: {
                 Text("Each output keeps its own sound. Tunes switches automatically when you plug in headphones or connect a speaker. Now playing on: \(app.player.routeName).")
             }
+.themedRow()
             Section {
                 Picker("Volume leveling", selection: $prefs.data.normalization) { ForEach(Normalization.allCases) { Text($0.label).tag($0) } }
             } footer: { Text("Evens out loud and quiet songs. Normal suits most people; Loud is best in noisy places.") }
+.themedRow()
             Section {
                 Toggle("Gapless playback", isOn: $prefs.data.gapless)
                 VStack(alignment: .leading) {
@@ -109,6 +117,7 @@ struct SoundSettingsView: View {
                 }
                 Toggle("Never crossfade inside albums", isOn: $prefs.data.noCrossfadeInAlbums)
             } header: { Text("Transitions") }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Sound")
@@ -186,6 +195,7 @@ struct StorageView: View {
                 }
                 .padding(.vertical, 4)
             }
+.themedRow()
             Section {
                 Picker("Download quality", selection: $prefs.data.quality) {
                     Text("Best").tag(DownloadQuality.best)
@@ -196,6 +206,7 @@ struct StorageView: View {
                     ForEach([2, 5, 10, 20, 50], id: \.self) { Text("\($0) GB").tag($0) }
                 }
             } footer: { Text("Best is about 4 MB per song, Save space about half. When the limit is reached, new downloads wait.") }
+.themedRow()
             Section {
                 Toggle("Remove songs not played in 3 months", isOn: $prefs.data.autoRemoveUnplayed)
                 Button("Clean up now") {
@@ -205,6 +216,7 @@ struct StorageView: View {
                     measure()
                 }
             } footer: { Text("Liked songs and songs in playlists you keep downloaded are never removed.") }
+.themedRow()
             Section {
                 Button("Clear cache") {
                     try? FileManager.default.removeItem(at: Paths.cacheDir)
@@ -215,6 +227,7 @@ struct StorageView: View {
                 }
                 Button("Remove all downloads", role: .destructive) { confirmDeleteAll = true }
             }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Storage")
@@ -276,8 +289,9 @@ struct BackupView: View {
                 }
                 if let err = backup.lastError { Text(err).font(.footnote).foregroundStyle(.red) }
             } header: { Text("Backup") } footer: {
-                Text("Pick a folder in iCloud Drive or On My iPhone. Backups hold your library info, playlists, stats and settings. Songs themselves re-download after a restore.")
+                Text("Pick a folder in iCloud Drive or On My iPhone. Backups hold your library info, playlists, stats and settings, plus whatever you include below.")
             }
+.themedRow()
             Section {
                 Toggle("Back up automatically on Wi-Fi", isOn: $prefs.data.autoBackup)
                 if prefs.data.autoBackup {
@@ -288,12 +302,21 @@ struct BackupView: View {
                     Stepper("Keep last \(prefs.data.backupKeep) backups", value: $prefs.data.backupKeep, in: 1...30)
                 }
             }
+.themedRow()
+            Section {
+                Toggle("Include my pictures", isOn: $prefs.data.backupImages)
+                Toggle("Include songs from my files", isOn: $prefs.data.backupOwnFiles)
+            } header: { Text("What to include") } footer: {
+                Text("Pictures: your profile photo, playlist cover photos and covers you changed. Turn off to keep backups small. Songs from my files: the audio of songs you imported from your phone, saved in a \"Tunes Imported Songs\" folder next to the backups. They can't be downloaded again, so leave this on unless you have them elsewhere. Downloaded songs are never included; they download again after a restore.")
+            }
+.themedRow()
             Section {
                 Button("Restore from a backup…") { pick(.restore) }
                 if !backup.missingAfterRestore.isEmpty {
                     Button("Download \(backup.missingAfterRestore.count) missing songs") { backup.downloadMissing() }
                 }
             } footer: { Text("Restoring replaces what's on this iPhone now.") }
+.themedRow()
 
             Section {
                 switch app.history.phase {
@@ -321,9 +344,11 @@ struct BackupView: View {
             } header: { Text("Spotify history") } footer: {
                 Text("Request \"Extended streaming history\" at spotify.com → Account → Privacy. When the email arrives, save the .zip to Files, open it, and pick the Streaming_History_Audio .json files here. Plays count for the real artists. Importing twice won't double count.")
             }
+.themedRow()
             Section {
                 Button("Reset all stats", role: .destructive) { confirmReset = true }
             }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Backup & import")
@@ -383,6 +408,7 @@ struct AppearanceView: View {
             } header: { Text("Theme") } footer: {
                 Text("Dark uses soft charcoal greys. Black is pure black, which saves battery on iPhone X and newer (except XR and 11). Auto follows your iPhone's light/dark setting. Midnight to Rosé paint a gradient behind the whole app. Aurora, Nebula, Lava, Lagoon and Pastel have soft light that drifts slowly (Nebula adds twinkling stars); they hold still if Animations is off. Picking one of those also picks a matching accent color, which you can change below.")
             }
+.themedRow()
             Section {
                 HStack {
                     ForEach(Self.accents, id: \.self) { hex in
@@ -399,6 +425,7 @@ struct AppearanceView: View {
             } header: { Text("Accent color") } footer: {
                 Text("Used for buttons, switches, progress bars and highlights all over the app.")
             }
+.themedRow()
             Section {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 14) {
                     ForEach(AppIcons.all, id: \.name) { icon in
@@ -428,6 +455,7 @@ struct AppearanceView: View {
             } header: { Text("App icon") } footer: {
                 Text("Changes the icon on your Home Screen. iOS shows a short message confirming the change.")
             }
+.themedRow()
             Section {
                 Picker("Corners", selection: $prefs.data.corners) { ForEach(CornerStyle.allCases) { Text($0.label).tag($0) } }
                 Picker("Artwork", selection: $prefs.data.artShape) { ForEach(ArtShape.allCases) { Text($0.label).tag($0) } }
@@ -438,6 +466,7 @@ struct AppearanceView: View {
             } header: { Text("Shapes & size") } footer: {
                 Text("Corners: how round cards, tiles and panels are. Artwork: the shape of song and album covers. Text size: makes all text in Tunes bigger or smaller. Player background: what's behind the full-screen player (a color taken from the cover, a blurred cover, or plain).")
             }
+.themedRow()
             Section {
                 Toggle("Tab bar labels", isOn: $prefs.data.tabLabels)
                 Toggle("Haptics", isOn: $prefs.data.haptics)
@@ -445,6 +474,7 @@ struct AppearanceView: View {
             } header: { Text("Feel") } footer: {
                 Text("Tab bar labels: shows the words Home, Library and Stats under the icons at the bottom. Haptics: the small vibrations when you tap buttons, like a song, flip a switch or finish a download. Animations: turn off for instant screen changes with no sliding or fading.")
             }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Appearance")
@@ -548,6 +578,7 @@ struct ConnectionsView: View {
             } header: { Text("Sharing") } footer: {
                 Text("These need a sign-in that isn't in this version yet. Private listening in your profile will control them once they arrive.")
             }
+.themedRow()
             Section {
                 SecureField("Ticketmaster API key", text: $key)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -562,6 +593,7 @@ struct ConnectionsView: View {
             } header: { Text("Shows on artist pages") } footer: {
                 Text("Get a free key at developer.ticketmaster.com (My Apps → Consumer Key). It's stored only on this iPhone.")
             }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Connections")
@@ -599,16 +631,19 @@ struct CustomizeHomeView: View {
                     }
                     .onMove { prefs.data.home.move(fromOffsets: $0, toOffset: $1) }
                 } footer: { Text("Drag to reorder. Turn off what you don't want to see.") }
+.themedRow()
                 Section {
                     NavigationLink { BrowseChartsView() } label: {
                         LabeledContent("Charts on Home", value: "\(prefs.data.homeCharts.count)")
                     }
                 }
+.themedRow()
                 Section {
                     Button("Reset to default") {
                         withAnimation { prefs.data.home = HomeSectionKind.allCases.map { HomeSection(kind: $0, visible: true) } }
                     }
                 }
+.themedRow()
             }
             .environment(\.editMode, .constant(.active))
             .themedForm()
@@ -654,6 +689,7 @@ struct ProfileView: View {
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
                 }
+.themedRow()
                 Section {
                     HStack {
                         quickStat(Fmt.listening(app.stats.total(app.stats.records)), "listened")
@@ -673,6 +709,7 @@ struct ProfileView: View {
                     }
                     Button { app.sheet = nil; app.tab = .stats } label: { Label("See all your stats", systemImage: "chart.bar") }
                 }
+.themedRow()
                 Section {
                     Picker(selection: Binding(get: { privateChoice }, set: { setPrivate($0) })) {
                         Text("Off").tag(0); Text("1 hour").tag(1); Text("8 hours").tag(2); Text("Until tomorrow").tag(3); Text("Always").tag(4)
@@ -687,17 +724,20 @@ struct ProfileView: View {
                 } footer: {
                     Text("While private, nothing you play is shared with connections. With the second switch on, it doesn't count in your stats or Wrapped either.")
                 }
+.themedRow()
                 Section("Quick settings") {
                     Toggle(isOn: $prefs.data.offline) { Label("Offline mode", systemImage: "airplane") }
                     Toggle(isOn: $prefs.data.downloadWifiOnly) { Label("Download only on Wi-Fi", systemImage: "wifi") }
                     Toggle(isOn: $prefs.data.haptics) { Label("Haptics", systemImage: "hand.tap") }
                 }
+.themedRow()
                 Section {
                     NavigationLink { ConnectionsView() } label: { Label("Connections", systemImage: "link") }
                     NavigationLink { AppearanceView() } label: { Label("Appearance", systemImage: "paintbrush") }
                     NavigationLink { BackupView() } label: { Label("Backup & import", systemImage: "externaldrive.badge.icloud") }
                     NavigationLink { SettingsView() } label: { Label("All settings", systemImage: "gearshape") }
                 }
+.themedRow()
             }
             .themedForm()
             .navigationTitle("Profile")

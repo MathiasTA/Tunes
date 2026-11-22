@@ -192,6 +192,7 @@ struct SongStatsView: View {
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
             }
+.themedRow()
             Section {
                 LabeledContent("Listened", value: Fmt.listening(recs.reduce(0) { $0 + $1.seconds }))
                 LabeledContent("Plays", value: "\(recs.filter { $0.seconds >= StatsStore.playThreshold }.count)")
@@ -201,6 +202,7 @@ struct SongStatsView: View {
                 let imported = recs.filter { $0.origin == .spotify }.count
                 if imported > 0 { LabeledContent("From Spotify history", value: "\(imported) plays") }
             }
+.themedRow()
             if monthly.count > 1 {
                 Section("Minutes per month") {
                     Chart(monthly, id: \.0) { m in
@@ -208,6 +210,7 @@ struct SongStatsView: View {
                     }
                     .frame(height: 160)
                 }
+.themedRow()
             }
         }
         .themedForm()

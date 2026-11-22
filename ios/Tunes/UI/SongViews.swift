@@ -33,6 +33,7 @@ struct SongMenuView: View {
                     }
                     .listRowBackground(Color.clear)
                 }
+.themedRow()
                 Section {
                     if downloaded {
                         row("Play", "play.fill") { app.player.play([shown], context: shown.title); dismiss() }
@@ -56,6 +57,7 @@ struct SongMenuView: View {
                         row("Remove from \(p.name)", "minus.circle") { app.playlists.remove(songIDs: [song.id], from: p.id); dismiss() }
                     }
                 }
+.themedRow()
                 Section {
                     ForEach(shown.allArtists.filter { $0.id > 0 }) { a in
                         row(shown.allArtists.count > 1 ? "Go to \(a.name)" : "Go to artist", "person") { app.navigate(.artist(a)) }
@@ -71,10 +73,10 @@ struct SongMenuView: View {
                         row("Watch video", "play.rectangle") { app.sheet = .video(shown) }
                     }
                 }
+.themedRow()
                 if downloaded {
                     Section {
-                        row("Edit song info", "pencil") { app.sheet = .edit(song.id) }
-                        row("Wrong song? Change source", "arrow.triangle.2.circlepath") { app.sheet = .edit(song.id) }
+                        row("Edit song, cover & source", "pencil") { app.sheet = .edit(song.id) }
                         row("Remove download", "trash", tint: .red) {
                             app.player.removeSongs([song.id])
                             app.library.delete([song.id])
@@ -82,6 +84,7 @@ struct SongMenuView: View {
                             dismiss()
                         }
                     }
+.themedRow()
                 }
             }
             .themedForm()
@@ -136,6 +139,7 @@ struct ShareSongView: View {
                         }
                     }
                 }
+.themedRow()
                 if let universal {
                     Section {
                         ShareLink(item: universal, subject: Text(song.title), message: Text("\(song.title) by \(song.artistLine)")) {
@@ -148,12 +152,14 @@ struct ShareSongView: View {
                     } footer: {
                         Text("Opens a page where your friend picks Spotify, Apple Music, YouTube, Deezer or whatever they use.")
                     }
+.themedRow()
                 }
                 Section("Link for a specific app") {
                     ForEach(links, id: \.0) { item in
                         ShareLink(item: item.2) { Label(item.0, systemImage: item.1) }
                     }
                 }
+.themedRow()
             }
             .themedForm()
             .navigationTitle("Share")
@@ -207,6 +213,7 @@ struct EditSongView: View {
                         .foregroundStyle(.orange).font(.subheadline)
                     Button("It's the right song") { app.library.update(songID) { $0.needsReview = false } }
                 }
+.themedRow()
             }
             Section {
                 HStack(spacing: 16) {
@@ -227,11 +234,13 @@ struct EditSongView: View {
                     .disabled(coverLink.isEmpty)
                 }
             } header: { Text("Cover") }
+.themedRow()
 
             Section("Info") {
                 TextField("Title", text: $title)
                 TextField("Album", text: $albumTitle)
             }
+.themedRow()
 
             Section {
                 ForEach(Array(artists.enumerated()), id: \.element.id) { i, a in
@@ -250,6 +259,7 @@ struct EditSongView: View {
             } header: { Text("Artists") } footer: {
                 Text("Linked artists get the listening time in your stats. The first one is the main artist.")
             }
+.themedRow()
 
             Section {
                 VStack(alignment: .leading, spacing: 3) {
@@ -289,6 +299,7 @@ struct EditSongView: View {
             } header: { Text("Audio source") } footer: {
                 Text("Lengths in green match the real song. Picking one downloads it again; your stats, likes and playlists stay.")
             }
+.themedRow()
 
             Section("Sound") {
                 NavigationLink { TrimView(songID: songID) } label: {
@@ -305,6 +316,7 @@ struct EditSongView: View {
                     app.player.reloadIfCurrent(songID)
                 }
             }
+.themedRow()
 
             Section {
                 Button("Remove download", role: .destructive) {
@@ -313,6 +325,7 @@ struct EditSongView: View {
                     dismiss()
                 }
             }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Edit song")
@@ -500,6 +513,7 @@ struct LinkArtistView: View {
                         .onMove { selected.move(fromOffsets: $0, toOffset: $1) }
                         .onDelete { selected.remove(atOffsets: $0) }
                     } header: { Text("Linked (\(selected.count))") } footer: { Text("Drag to choose the main artist.") }
+.themedRow()
                 }
                 Section {
                     ForEach(results) { a in
@@ -523,6 +537,7 @@ struct LinkArtistView: View {
                     }
                     if loading { ProgressView().frame(maxWidth: .infinity) }
                 } header: { Text("Search results") }
+.themedRow()
             }
             .environment(\.editMode, .constant(.active))
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search artists")
@@ -606,6 +621,7 @@ struct TrimView: View {
                 .padding(.vertical, 6)
                 if bars.isEmpty { Text("Measuring the song…").font(.caption).foregroundStyle(.secondary) }
             } footer: { Text("Drag the handles to cut silence, intros or skits.") }
+.themedRow()
 
             Section {
                 Stepper("Start \(Fmt.time(start))", value: $start, in: 0...max(0, end - 5), step: 1)
@@ -617,6 +633,7 @@ struct TrimView: View {
                 }
                 .disabled(analysis == nil)
             }
+.themedRow()
 
             Section("Fades") {
                 VStack(alignment: .leading) {
@@ -628,6 +645,7 @@ struct TrimView: View {
                     Slider(value: $fadeOut, in: 0...10, step: 0.5)
                 }
             }
+.themedRow()
 
             Section {
                 Button { save(); play() } label: { Label("Save and play", systemImage: "play.fill") }
@@ -635,6 +653,7 @@ struct TrimView: View {
                     withAnimation { start = 0; end = total; fadeIn = 0; fadeOut = 0 }
                 }
             }
+.themedRow()
         }
         .themedForm()
         .navigationTitle("Trim")
@@ -735,9 +754,11 @@ struct ImportFilesView: View {
                         }
                         .padding(.vertical, 20)
                     }
+.themedRow()
                 }
                 ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
                     Section { itemView(i, item) }
+.themedRow()
                 }
             }
             .themedForm()
@@ -1054,12 +1075,15 @@ struct SpotifyImportView: View {
         } footer: {
             Text("In Spotify: open the playlist → ··· → Share → Copy link. The playlist has to be public.")
         }
+.themedRow()
         Section {
             Button { pickCSV = true } label: { Label("Choose a CSV file", systemImage: "doc.text") }
         } footer: {
             Text("Links bring in up to 100 songs. For longer or private playlists, export them as a CSV file at exportify.app, then pick the file here.")
         }
-        if let error { Section { Text(error).foregroundStyle(.red).font(.footnote) } }
+.themedRow()
+        if let error { Section { Text(error).foregroundStyle(.red).font(.footnote) }
+.themedRow() }
     }
 
     @ViewBuilder private var review: some View {
@@ -1086,6 +1110,7 @@ struct SpotifyImportView: View {
             } footer: {
                 Text("Or tap Create to keep just these \(rows.count).")
             }
+.themedRow()
         }
         Section {
             TextField("Playlist name", text: $name).font(.headline)
@@ -1099,11 +1124,13 @@ struct SpotifyImportView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
+.themedRow()
         let unsure = rows.filter { if case .some(.unsure) = $0.result { return true } else { return false } }
         if !unsure.isEmpty {
             Section {
                 ForEach(unsure) { row in unsureRow(row) }
             } header: { Text("Not sure (\(unsure.count))") } footer: { Text("Pick the right version, or skip it.") }
+.themedRow()
         }
         let missing = rows.filter { if case .some(.notFound) = $0.result { return true } else { return false } }
         if !missing.isEmpty {
@@ -1120,6 +1147,7 @@ struct SpotifyImportView: View {
                     }
                 }
             } header: { Text("Not found (\(missing.count))") }
+.themedRow()
         }
         let good = rows.filter { $0.result?.song != nil }
         if !good.isEmpty {
@@ -1139,6 +1167,7 @@ struct SpotifyImportView: View {
                     }
                 }
             } header: { Text("Matched (\(good.count))") }
+.themedRow()
         }
         let skipped = rows.filter { if case .some(.skipped) = $0.result { return true } else { return false } }
         if !skipped.isEmpty {
@@ -1151,6 +1180,7 @@ struct SpotifyImportView: View {
                     }
                 }
             }
+.themedRow()
         }
     }
 

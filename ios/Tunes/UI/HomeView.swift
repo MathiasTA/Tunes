@@ -47,12 +47,14 @@ struct HomeView: View {
             NavigationStack { CustomizeHomeView(asSheet: true) }.environment(app).environment(\.look, look).tint(look.accent)
         }
         .task { await loadDiscovery() }
+        .onChange(of: app.homeReselect) { _, _ in if searching { endSearch() } }
     }
 
     private var home: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                header
+                header.id("top")
                 if offline {
                     OfflineBanner().padding(.horizontal)
                 }
@@ -67,9 +69,13 @@ struct HomeView: View {
             .padding(.top, 4)
         }
         .themeBackground()
+        .onChange(of: app.homeReselect) { _, _ in
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.9)) { proxy.scrollTo("top", anchor: .top) }
+        }
         .refreshable {
             await app.playlists.refreshAll(force: true)
             await loadDiscovery(force: true)
+        }
         }
     }
 

@@ -38,7 +38,9 @@ struct RootView: View {
     var body: some View {
         @Bindable var app = app
         ZStack {
-            TabView(selection: $app.tab) {
+            TabView(selection: Binding(get: { app.tab }, set: { new in
+                if new == app.tab { app.reselect(new) } else { app.tab = new }
+            })) {
                 NavigationStack(path: $app.homePath) { HomeView().miniPlayerSpace().withRoutes() }
                     .miniPlayerInset()
                     .solidTabBar(look)
@@ -128,6 +130,12 @@ struct RootView: View {
         case .createPlaylist: CreatePlaylistView()
         case .autoPlaylist(let id): AutoPlaylistEditor(playlistID: id)
         case .settings: NavigationStack { SettingsView().withRoutes() }
+        case .downloads: DownloadsView()
+        case .fixDownload(let song):
+            NavigationStack {
+                FixDownloadView(song: song)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { DoneButton() } }
+            }
         }
     }
 }
@@ -164,7 +172,12 @@ extension View {
 
     /// Floats the mini player above the tab bar. Each screen makes room for it with `miniPlayerSpace()`.
     func miniPlayerInset() -> some View {
-        overlay(alignment: .bottom) { MiniPlayer() }
+        overlay(alignment: .bottom) {
+            VStack(spacing: 6) {
+                DownloadsBar()
+                MiniPlayer()
+            }
+        }
     }
 
     /// Adds empty space under a screen's content while the mini player is showing,
@@ -178,7 +191,8 @@ private struct MiniPlayerSpace: ViewModifier {
     @Environment(AppModel.self) private var app
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: app.player.currentSong != nil ? 72 : 0)
+            Color.clear.frame(height: (app.player.currentSong != nil ? 72 : 0)
+                + (DownloadsBar.isVisible(app.library) ? 58 : 0))
         }
     }
 }

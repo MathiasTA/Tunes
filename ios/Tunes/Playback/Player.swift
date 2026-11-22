@@ -40,9 +40,21 @@ final class Player {
     var current: LibraryEntry? { currentID.flatMap { AppModel.shared.library.entry($0) } }
     var currentSong: Song? { current?.song }
     var start: Double { current?.trimStart ?? 0 }
+    /// Where the song stops: the trim end, else the real length of the downloaded file
+    /// (YouTube uploads are often a few seconds longer or shorter than the catalog says).
     var end: Double {
         guard let e = current else { return 0 }
-        return e.trimEnd ?? e.song.duration
+        return e.trimEnd ?? fileLength(e) ?? e.song.duration
+    }
+
+    @ObservationIgnored private var fileLengths: [Int: Double] = [:]
+
+    private func fileLength(_ e: LibraryEntry) -> Double? {
+        if let known = fileLengths[e.id] { return known }
+        guard let f = try? AVAudioFile(forReading: e.fileURL), f.processingFormat.sampleRate > 0 else { return nil }
+        let seconds = Double(f.length) / f.processingFormat.sampleRate
+        fileLengths[e.id] = seconds
+        return seconds
     }
     var duration: Double { max(0, end - start) }
     var elapsed: Double { max(0, position - start) }
@@ -323,6 +335,7 @@ final class Player {
     private func load(play: Bool, from: Double? = nil) {
         guard let e = current else { stop(); return }
         finishRecord()
+        fileLengths[e.id] = nil // the file may have been replaced since last time
         do {
             try AVAudioSession.sharedInstance().setActive(true)
             let from = from ?? e.trimStart
@@ -440,6 +453,7 @@ final class Player {
             }
         }
 
+        if tickCount % 150 == 0 { updateNowPlaying() }
         if tickCount % 30 == 0 {
             if let s = sleepAt, s <= .now {
                 sleepAt = nil
@@ -483,8 +497,10 @@ final class Player {
             MPMediaItemPropertyTitle: e.song.title,
             MPMediaItemPropertyArtist: e.song.artistLine,
             MPMediaItemPropertyPlaybackDuration: duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: min(elapsed, duration),
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
         if let album = e.song.album?.title { info[MPMediaItemPropertyAlbumTitle] = album }
         if let image = UIImage(contentsOfFile: e.song.localArtworkURL.path) {
@@ -497,18 +513,34 @@ final class Player {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
+    /// Lock Screen, Control Center, headphones and car controls.
+    /// Handlers hop to the main actor explicitly, whatever thread iOS calls them on.
     private func setupRemoteCommands() {
         let c = MPRemoteCommandCenter.shared()
-        c.playCommand.addTarget { [weak self] _ in MainActor.assumeIsolated { self?.resume() }; return .success }
-        c.pauseCommand.addTarget { [weak self] _ in MainActor.assumeIsolated { self?.pause() }; return .success }
-        c.togglePlayPauseCommand.addTarget { [weak self] _ in MainActor.assumeIsolated { self?.togglePlayPause() }; return .success }
-        c.nextTrackCommand.addTarget { [weak self] _ in MainActor.assumeIsolated { self?.next() }; return .success }
-        c.previousTrackCommand.addTarget { [weak self] _ in MainActor.assumeIsolated { self?.previous() }; return .success }
+        func on(_ command: MPRemoteCommand, _ action: @escaping @MainActor (Player) -> Void) {
+            command.isEnabled = true
+            command.addTarget { [weak self] _ in
+                Task { @MainActor in if let self { action(self) } }
+                return .success
+            }
+        }
+        on(c.playCommand) { $0.resume() }
+        on(c.pauseCommand) { $0.pause() }
+        on(c.togglePlayPauseCommand) { $0.togglePlayPause() }
+        on(c.nextTrackCommand) { $0.next() }
+        on(c.previousTrackCommand) { $0.previous() }
+        c.changePlaybackPositionCommand.isEnabled = true
         c.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            MainActor.assumeIsolated { if let self { self.seek(to: self.start + e.positionTime) } }
+            let t = e.positionTime
+            Task { @MainActor in if let self { self.seek(to: self.start + t) } }
             return .success
         }
+        // Show previous / next buttons rather than "skip 15 seconds" ones.
+        c.skipForwardCommand.isEnabled = false
+        c.skipBackwardCommand.isEnabled = false
+        c.seekForwardCommand.isEnabled = false
+        c.seekBackwardCommand.isEnabled = false
     }
 
     // MARK: System events

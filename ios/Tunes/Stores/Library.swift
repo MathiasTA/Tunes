@@ -25,6 +25,16 @@ final class Library {
     private(set) var states: [Int: DownloadState] = [:]
     private(set) var version = 0
 
+    /// Songs that were asked to download and haven't finished (including failed ones), so the
+    /// downloads screen can show them even though they aren't in the library yet.
+    private(set) var jobs: [Int: Song] = [:]
+    /// The YouTube video each failed song last tried, and which step failed.
+    private(set) var lastTried: [Int: VideoCandidate] = [:]
+    private(set) var failedStep: [Int: String] = [:]
+    /// Progress of the current batch: resets when a download starts after everything had finished.
+    private(set) var batchTotal = 0
+    private(set) var batchDone = 0
+
     @ObservationIgnored private var index: [Int: Int] = [:]
     @ObservationIgnored private var pending: [(song: Song, video: VideoCandidate?)] = []
     @ObservationIgnored private var active = 0
@@ -81,11 +91,50 @@ final class Library {
 
     var reviewCount: Int { entries.filter(\.needsReview).count }
 
+    // MARK: Download overview
+
+    var activeCount: Int { states.values.filter(\.isActive).count }
+    var failedIDs: [Int] {
+        states.filter { if case .failed = $0.value { return true } else { return false } }.map(\.key).sorted()
+    }
+    var activeIDs: [Int] { states.compactMap { $0.value.isActive ? $0.key : nil }.sorted() }
+
+    /// 0...1 across the whole batch, counting partial progress of songs downloading right now.
+    var batchProgress: Double {
+        guard batchTotal > 0 else { return 0 }
+        let partial = states.values.reduce(0.0) { sum, st in
+            if case .downloading(let p) = st { return sum + p } else { return sum }
+        }
+        return min(1, (Double(batchDone) + partial) / Double(batchTotal))
+    }
+
+    func failureReason(_ id: Int) -> String? {
+        if case .failed(let why) = states[id] { return why }
+        return nil
+    }
+
+    func retryAllFailed() {
+        for id in failedIDs { if let song = jobs[id] { download(song) } }
+    }
+
+    func clearFailed() {
+        for id in failedIDs {
+            states[id] = nil
+            jobs[id] = nil
+            lastTried[id] = nil
+            failedStep[id] = nil
+        }
+    }
+
     // MARK: Downloading
 
     func download(_ song: Song, video: VideoCandidate? = nil) {
         guard !isDownloaded(song.id), song.id > 0 else { return }
         if let s = states[song.id], s.isActive { return }
+        if activeCount == 0 { batchTotal = 0; batchDone = 0 }
+        batchTotal += 1
+        jobs[song.id] = song
+        failedStep[song.id] = nil
         states[song.id] = .queued
         pending.append((song, video))
         pump()
@@ -94,9 +143,13 @@ final class Library {
     func downloadAll(_ songs: [Song]) { for s in songs where !isDownloaded(s.id) { download(s) } }
 
     func cancelDownload(_ id: Int) {
+        let wasQueued = pending.contains { $0.song.id == id }
         pending.removeAll { $0.song.id == id }
         switch states[id] {
-        case .some(.queued), .some(.waiting), .some(.failed): states[id] = nil
+        case .some(.queued), .some(.waiting), .some(.failed):
+            states[id] = nil
+            jobs[id] = nil
+            if wasQueued { batchTotal = max(batchDone, batchTotal - 1) }
         default: break
         }
     }
@@ -132,6 +185,7 @@ final class Library {
 
     private func perform(_ song: Song, video: VideoCandidate?) async {
         let id = song.id
+        var step = "search"
         do {
             states[id] = .matching
             var candidate: VideoCandidate
@@ -143,6 +197,8 @@ final class Library {
                 candidate = m.best
                 confident = m.confident
             }
+            lastTried[id] = candidate
+            step = "download"
             states[id] = .downloading(0)
             let fileName = "\(id).m4a"
             let dest = Paths.audioDir.appending(path: fileName)
@@ -162,12 +218,18 @@ final class Library {
             entry.needsReview = !confident
             insert(entry)
             states[id] = nil
+            jobs[id] = nil
+            lastTried[id] = nil
+            batchDone += 1
             analyze(id)
             AppModel.shared.haptic(.success)
         } catch is CancellationError {
             states[id] = nil
+            jobs[id] = nil
         } catch {
+            failedStep[id] = step
             states[id] = .failed(error.localizedDescription)
+            batchDone += 1
         }
     }
 
@@ -220,6 +282,10 @@ final class Library {
             e.hasCustomArtwork = true
         }
         if let old = entry(song.id) { e.liked = old.liked; e.addedAt = old.addedAt; replace(e) } else { insert(e) }
+        states[song.id] = nil
+        jobs[song.id] = nil
+        lastTried[song.id] = nil
+        failedStep[song.id] = nil
         if artworkData == nil { Task { await fetchArtwork(for: song) } }
         analyze(song.id)
         return e

@@ -327,6 +327,7 @@ struct AlbumView: View {
                             .accessibilityLabel("Add album to playlist")
                         }
                     }
+                    ListDownloadProgress(songs: songs).padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)

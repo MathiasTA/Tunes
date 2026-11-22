@@ -18,6 +18,8 @@ enum AppSheet: Identifiable {
     case createPlaylist
     case autoPlaylist(UUID?)
     case settings
+    case downloads
+    case fixDownload(Song)
 
     var id: String {
         switch self {
@@ -34,6 +36,8 @@ enum AppSheet: Identifiable {
         case .spotifyImport: "spotify"
         case .createPlaylist: "create"
         case .autoPlaylist(let id): "auto-\(id?.uuidString ?? "new")"
+        case .downloads: "downloads"
+        case .fixDownload(let s): "fix-\(s.id)"
         case .settings: "settings"
         }
     }
@@ -191,6 +195,8 @@ struct SongRow: View {
     var playlistID: UUID? = nil
     var trackNumber: Int? = nil
     var showArtwork = true
+    /// Swipe left to like. Lists that use swipe-left to remove/delete turn this off; like then sits on the right swipe.
+    var likeOnTrailingSwipe = true
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
 
@@ -239,6 +245,27 @@ struct SongRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: tap)
         .contextMenu { SongContextMenu(song: shown, playlistID: playlistID) }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                app.player.addToQueue(shown)
+                app.show(downloaded ? "Added to queue" : "Downloading, then it joins your queue")
+                app.haptic(.light)
+            } label: { Label("Queue", systemImage: "text.badge.plus") }
+                .tint(look.accent)
+            if !likeOnTrailingSwipe { likeAction }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if likeOnTrailingSwipe { likeAction }
+        }
+    }
+
+    private var likeAction: some View {
+        let liked = app.library.isLiked(song.id)
+        return Button {
+            app.library.toggleLike(shown)
+            app.haptic(.light)
+        } label: { Label(liked ? "Unlike" : "Like", systemImage: liked ? "heart.slash.fill" : "heart.fill") }
+            .tint(.pink)
     }
 
     private var subtitle: String {
@@ -310,7 +337,8 @@ struct DownloadButton: View {
                 case .some(.waiting):
                     Image(systemName: "clock").foregroundStyle(.secondary)
                 case .some(.failed):
-                    Button { app.library.download(song) } label: { Image(systemName: "arrow.clockwise.circle").foregroundStyle(.orange) }
+                    Button { app.sheet = .fixDownload(song) } label: { Image(systemName: "exclamationmark.arrow.circlepath").foregroundStyle(.orange) }
+                        .accessibilityLabel("Download failed. Fix it")
                         .buttonStyle(.plain)
                 case .none:
                     Button { app.library.download(song) } label: { Image(systemName: "arrow.down.circle").foregroundStyle(look.accent) }
@@ -508,6 +536,12 @@ struct OfflineBanner: View {
             .overlay(RoundedRectangle(cornerRadius: look.radius(14)).stroke(Color.yellow.opacity(0.35)))
         }
     }
+}
+
+/// A "Done" button that closes whatever sheet it's in.
+struct DoneButton: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View { Button("Done") { dismiss() }.bold() }
 }
 
 struct SectionLabel: View {
