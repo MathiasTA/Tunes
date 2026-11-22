@@ -39,15 +39,15 @@ struct RootView: View {
         @Bindable var app = app
         ZStack {
             TabView(selection: $app.tab) {
-                NavigationStack(path: $app.homePath) { HomeView().withRoutes() }
+                NavigationStack(path: $app.homePath) { HomeView().miniPlayerSpace().withRoutes() }
                     .miniPlayerInset()
                     .tabItem { tabLabel("Home", "house.fill") }
                     .tag(AppModel.Tab.home)
-                NavigationStack(path: $app.libraryPath) { LibraryView().withRoutes() }
+                NavigationStack(path: $app.libraryPath) { LibraryView().miniPlayerSpace().withRoutes() }
                     .miniPlayerInset()
                     .tabItem { tabLabel("Library", "square.stack.fill") }
                     .tag(AppModel.Tab.library)
-                NavigationStack(path: $app.statsPath) { StatsView().withRoutes() }
+                NavigationStack(path: $app.statsPath) { StatsView().miniPlayerSpace().withRoutes() }
                     .miniPlayerInset()
                     .tabItem { tabLabel("Stats", "chart.bar.fill") }
                     .tag(AppModel.Tab.stats)
@@ -132,6 +132,7 @@ struct RootView: View {
 extension View {
     func withRoutes() -> some View {
         navigationDestination(for: Route.self) { route in
+            Group {
             switch route {
             case .search: SearchView()
             case .artist(let a): ArtistView(artist: a)
@@ -145,10 +146,28 @@ extension View {
             case .settings: SettingsView()
             case .songStats(let id): SongStatsView(songID: id)
             }
+            }
+            .miniPlayerSpace()
         }
     }
 
+    /// Floats the mini player above the tab bar. Each screen makes room for it with `miniPlayerSpace()`.
     func miniPlayerInset() -> some View {
-        safeAreaInset(edge: .bottom, spacing: 0) { MiniPlayer() }
+        overlay(alignment: .bottom) { MiniPlayer() }
+    }
+
+    /// Adds empty space under a screen's content while the mini player is showing,
+    /// so the last song in a list can scroll above it instead of hiding behind it.
+    func miniPlayerSpace() -> some View {
+        modifier(MiniPlayerSpace())
+    }
+}
+
+private struct MiniPlayerSpace: ViewModifier {
+    @Environment(AppModel.self) private var app
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: app.player.currentSong != nil ? 72 : 0)
+        }
     }
 }

@@ -9,6 +9,8 @@ struct ArtistView: View {
     @State private var albums: [Album] = []
     @State private var loadError: String?
     @State private var showAllTop = false
+    @State private var showAllLocal = false
+    private static let collapsedCount = 5
 
     private var shown: Artist { full ?? artist }
     private var offline: Bool { app.prefs.data.offline || !app.network.isOnline }
@@ -22,8 +24,16 @@ struct ArtistView: View {
 
             if !local.isEmpty {
                 Section {
-                    ForEach(local) { SongRow(song: $0, queue: local, context: shown.name) }
-                } header: { SectionLabel(text: "Downloaded") }
+                    ForEach(showAllLocal ? local : Array(local.prefix(Self.collapsedCount))) {
+                        SongRow(song: $0, queue: local, context: shown.name)
+                    }
+                    if local.count > Self.collapsedCount {
+                        Button(showAllLocal ? "Show less" : "Show all \(local.count)") {
+                            withAnimation(.easeInOut(duration: 0.25)) { showAllLocal.toggle() }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                    }
+                } header: { SectionLabel(text: "In your library (\(local.count))") }
             }
             if !offline && !top.isEmpty {
                 Section {
@@ -423,6 +433,7 @@ struct DiscographyView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Surface.background(look))
+        .miniPlayerSpace()
         .navigationTitle("Discography")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
