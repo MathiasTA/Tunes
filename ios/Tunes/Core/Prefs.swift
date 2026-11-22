@@ -165,6 +165,16 @@ struct EQProfile: Codable, Hashable {
 enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
     case summary, madeForYou, newFromArtists, charts, recentlyPlayed, recentlyAdded, topArtists, following, onRepeat, trending, newReleases
     var id: String { rawValue }
+    /// The summary card has a fixed look; everything else can change layout.
+    var hasLayouts: Bool { self != .summary }
+    var defaultLayout: HomeLayout {
+        switch self {
+        case .onRepeat: .numbered
+        case .trending: .list
+        case .following: .smallCovers
+        default: .bigCovers
+        }
+    }
     var title: String {
         switch self {
         case .summary: "Listening summary"
@@ -200,7 +210,63 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
 struct HomeSection: Codable, Hashable, Identifiable {
     var kind: HomeSectionKind
     var visible: Bool
+    /// How the section is drawn, and how many items it shows (nil = the section's default).
+    var layout: HomeLayout? = nil
+    var count: Int? = nil
     var id: String { kind.rawValue }
+
+    var effectiveLayout: HomeLayout { layout ?? kind.defaultLayout }
+    var effectiveCount: Int { count ?? effectiveLayout.defaultCount }
+}
+
+/// The ways a Home section can be drawn.
+enum HomeLayout: String, Codable, CaseIterable, Identifiable {
+    case bigCovers, smallCovers, featured, compactGrid, coverGrid, list, numbered
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .bigCovers: "Big covers"
+        case .smallCovers: "Small covers"
+        case .featured: "Featured"
+        case .compactGrid: "Compact grid"
+        case .coverGrid: "Cover grid"
+        case .list: "List"
+        case .numbered: "Numbered list"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .bigCovers: "Large artwork you swipe through sideways"
+        case .smallCovers: "Smaller artwork, more at once"
+        case .featured: "One big card, then a row of small ones"
+        case .compactGrid: "Two columns of small artwork with titles beside"
+        case .coverGrid: "Three columns of covers going down"
+        case .list: "Rows going down, with details"
+        case .numbered: "Rows with rank numbers"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .bigCovers: "rectangle.split.3x1"
+        case .smallCovers: "square.grid.4x3.fill"
+        case .featured: "rectangle.topthird.inset.filled"
+        case .compactGrid: "square.grid.2x2"
+        case .coverGrid: "square.grid.3x3"
+        case .list: "list.bullet"
+        case .numbered: "list.number"
+        }
+    }
+    var defaultCount: Int {
+        switch self {
+        case .bigCovers, .smallCovers: 15
+        case .featured: 7
+        case .compactGrid: 8
+        case .coverGrid: 9
+        case .list, .numbered: 5
+        }
+    }
+    static let countChoices = [3, 4, 5, 6, 8, 9, 10, 12, 15, 20]
 }
 
 enum PrivateMode: Codable, Hashable {

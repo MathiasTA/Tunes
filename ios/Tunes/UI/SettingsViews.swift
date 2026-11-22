@@ -627,10 +627,10 @@ struct CustomizeHomeView: View {
             List {
                 Section {
                     ForEach($prefs.data.home) { $s in
-                        Toggle(isOn: $s.visible) { Label(s.kind.title, systemImage: s.kind.icon) }
+                        HomeSectionRow(section: $s)
                     }
                     .onMove { prefs.data.home.move(fromOffsets: $0, toOffset: $1) }
-                } footer: { Text("Drag to reorder. Turn off what you don't want to see.") }
+                } footer: { Text("Drag to reorder. Turn off what you don't want to see. Tap the layout under a section's name to change how it looks and how many items it shows.") }
 .themedRow()
                 Section {
                     NavigationLink { BrowseChartsView() } label: {
@@ -650,6 +650,49 @@ struct CustomizeHomeView: View {
             .navigationTitle("Customize Home")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { if asSheet { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
+    }
+}
+
+/// One Home section in Customize Home: on/off, plus a menu for its layout and size.
+struct HomeSectionRow: View {
+    @Binding var section: HomeSection
+    @Environment(\.look) private var look
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: section.kind.icon).foregroundStyle(look.accent).frame(width: 26)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(section.kind.title).foregroundStyle(section.visible ? Color.primary : Color.secondary)
+                if section.kind.hasLayouts {
+                    Menu {
+                        Picker("Layout", selection: Binding(get: { section.effectiveLayout }, set: { section.layout = $0; section.count = nil })) {
+                            ForEach(HomeLayout.allCases) { l in
+                                Label { Text(l.label); Text(l.detail) } icon: { Image(systemName: l.icon) }.tag(l)
+                            }
+                        }
+                        Picker("Show", selection: Binding(get: { section.effectiveCount }, set: { section.count = $0 })) {
+                            ForEach(HomeLayout.countChoices, id: \.self) { Text("\($0) items").tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                        if section.layout != nil || section.count != nil {
+                            Button("Back to default") { section.layout = nil; section.count = nil }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: section.effectiveLayout.icon)
+                            Text("\(section.effectiveLayout.label) · \(section.effectiveCount)")
+                            Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(look.accent)
+                    }
+                    .disabled(!section.visible)
+                }
+            }
+            Spacer()
+            Toggle("Show \(section.kind.title)", isOn: $section.visible).labelsHidden().fixedSize()
+        }
+        .padding(.vertical, 2)
     }
 }
 
