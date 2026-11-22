@@ -130,7 +130,17 @@ struct FullPlayerView: View {
             ZStack {
                 Surface.background(look)
                 if let s = app.player.currentSong {
-                    s.artwork(500).blur(radius: 60).opacity(0.6).ignoresSafeArea()
+                    // Sized to the screen (not a fixed 500 pt), so the blur can't widen the player and shove the cover sideways.
+                    GeometryReader { g in
+                        let side = max(g.size.width, g.size.height)
+                        s.artwork(side)
+                            .frame(width: g.size.width, height: g.size.height)
+                            .clipped()
+                            .blur(radius: 60)
+                            .opacity(0.6)
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
                 }
             }
             .ignoresSafeArea()
