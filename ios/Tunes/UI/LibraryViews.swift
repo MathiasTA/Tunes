@@ -15,6 +15,7 @@ struct LibraryView: View {
 
     var body: some View {
         List {
+            Group {
             Picker("Show", selection: $mode.animation(.easeInOut(duration: 0.2))) {
                 ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -36,6 +37,8 @@ struct LibraryView: View {
             case .songs: songRows
             case .artists: artistRows
             }
+                    }
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -237,6 +240,7 @@ struct LikedSongsView: View {
     var body: some View {
         let songs = app.library.liked.map(\.song)
         List {
+            Group {
             VStack(spacing: 12) {
                 LikedTile(size: 150)
                 Text("Liked songs").font(.title2.bold())
@@ -254,6 +258,8 @@ struct LikedSongsView: View {
             if songs.isEmpty {
                 Text("Tap the heart on any song to add it here.").font(.footnote).foregroundStyle(.secondary)
             }
+                    }
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

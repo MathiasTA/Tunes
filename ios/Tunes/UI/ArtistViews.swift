@@ -18,6 +18,7 @@ struct ArtistView: View {
     var body: some View {
         let local = app.library.songs(byArtist: artist.id)
         List {
+            Group {
             Section { header(local: local) }
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -77,6 +78,8 @@ struct ArtistView: View {
             if let loadError, local.isEmpty {
                 Text(loadError).font(.footnote).foregroundStyle(.secondary)
             }
+                    }
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -299,6 +302,7 @@ struct AlbumView: View {
         let missing = songs.filter { !app.library.isDownloaded($0.id) }
         let downloaded = songs.filter { app.library.isDownloaded($0.id) }
         List {
+            Group {
             Section {
                 VStack(spacing: 10) {
                     shown.cover(220).shadow(color: .black.opacity(0.35), radius: 14, y: 6)
@@ -341,6 +345,8 @@ struct AlbumView: View {
                 }
             }
             if let error { Text(error).font(.footnote).foregroundStyle(.secondary) }
+                    }
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -393,6 +399,7 @@ struct DiscographyView: View {
 
     var body: some View {
         List {
+            Group {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(Filter.allCases) { f in
@@ -431,6 +438,8 @@ struct DiscographyView: View {
                     Text("Nothing here.").font(.footnote).foregroundStyle(.secondary)
                 }
             }
+                    }
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

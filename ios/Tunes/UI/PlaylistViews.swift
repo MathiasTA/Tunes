@@ -33,6 +33,7 @@ struct PlaylistView: View {
             if !offline { moveAction = { from, to in store.move(in: id, from: from, to: to) } }
         }
         return List {
+            Group {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .bottom, spacing: 16) {
@@ -116,6 +117,8 @@ struct PlaylistView: View {
                     Text(emptyText(p)).font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
                 }
             }
+                    }
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

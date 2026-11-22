@@ -57,6 +57,7 @@ struct SearchResultsList: View {
 
     var body: some View {
         List {
+            Group {
             if offline {
                 OfflineBanner().listRowSeparator(.hidden)
             }
@@ -104,6 +105,8 @@ struct SearchResultsList: View {
                     } header: { SectionLabel(text: "Albums") }
                 }
             }
+                    }
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
