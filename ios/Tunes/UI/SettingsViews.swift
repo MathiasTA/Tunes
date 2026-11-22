@@ -662,7 +662,7 @@ struct HomeSectionRow: View {
         HStack(spacing: 12) {
             Image(systemName: section.kind.icon).foregroundStyle(look.accent).frame(width: 26)
             VStack(alignment: .leading, spacing: 3) {
-                Text(section.kind.title).foregroundStyle(section.visible ? Color.primary : Color.secondary)
+                Text(section.kind.title).foregroundStyle(section.visible ? Color.primary : Color.secondary).lineLimit(1)
                 if section.kind.hasLayouts {
                     Menu {
                         Picker("Layout", selection: Binding(get: { section.effectiveLayout }, set: { section.layout = $0; section.count = nil })) {
@@ -685,12 +685,15 @@ struct HomeSectionRow: View {
                         }
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(look.accent)
+                        .lineLimit(1)
+                        .fixedSize()
                     }
                     .disabled(!section.visible)
                 }
             }
             Spacer()
-            Toggle("Show \(section.kind.title)", isOn: $section.visible).labelsHidden().fixedSize()
+            SwitchKnob(isOn: $section.visible)
+                .accessibilityLabel("Show \(section.kind.title)")
         }
         .padding(.vertical, 2)
     }

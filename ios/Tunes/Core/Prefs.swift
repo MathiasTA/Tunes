@@ -560,6 +560,30 @@ struct TunesToggleStyle: ToggleStyle {
     }
 }
 
+/// Just the switch, with no label (for rows that lay out their own text).
+struct SwitchKnob: View {
+    @Binding var isOn: Bool
+    @Environment(\.look) private var look
+
+    var body: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { isOn.toggle() }
+            AppModel.shared.haptic(.selection)
+        } label: {
+            Capsule()
+                .fill(isOn ? look.accent : Color(.systemFill))
+                .frame(width: 51, height: 31)
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Circle().fill(.white).padding(2).shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(isOn ? "On" : "Off")
+    }
+}
+
 private struct TunesSwitch: View {
     let configuration: ToggleStyleConfiguration
     @Environment(\.look) private var look
