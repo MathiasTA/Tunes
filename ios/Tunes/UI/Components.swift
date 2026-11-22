@@ -550,3 +550,14 @@ struct SectionLabel: View {
         Text(text.uppercased()).font(.caption.weight(.bold)).foregroundStyle(.secondary).tracking(0.6)
     }
 }
+
+
+extension Song {
+    /// True if the search text appears in the title, any artist or the album (accents and case ignored).
+    func matches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return true }
+        return title.localizedStandardContains(q) || artistLine.localizedStandardContains(q)
+            || (album?.title.localizedStandardContains(q) ?? false)
+    }
+}

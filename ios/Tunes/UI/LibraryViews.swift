@@ -236,6 +236,7 @@ struct PlaylistRow: View {
 struct LikedSongsView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
+    @State private var query = ""
 
     var body: some View {
         let songs = app.library.liked.map(\.song)
@@ -254,7 +255,7 @@ struct LikedSongsView: View {
             .frame(maxWidth: .infinity)
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
-            ForEach(songs) { SongRow(song: $0, queue: songs, context: "Liked songs") }
+            ForEach(songs.filter { $0.matches(query) }) { SongRow(song: $0, queue: songs, context: "Liked songs") }
             if songs.isEmpty {
                 Text("Tap the heart on any song to add it here.").font(.footnote).foregroundStyle(.secondary)
             }
@@ -264,6 +265,7 @@ struct LikedSongsView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .themeBackground()
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Find in liked songs")
         .navigationTitle("Liked songs")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -164,6 +164,7 @@ struct EQProfile: Codable, Hashable {
 
 enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
     case summary, madeForYou, newFromArtists, charts, recentlyPlayed, recentlyAdded, topArtists, following, onRepeat, trending, newReleases
+    case yourPlaylists, favoriteAlbums
     var id: String { rawValue }
     /// The summary card has a fixed look; everything else can change layout.
     var hasLayouts: Bool { self != .summary }
@@ -171,6 +172,7 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .onRepeat: .numbered
         case .trending: .list
+        case .yourPlaylists: .compactGrid
         case .following: .smallCovers
         default: .bigCovers
         }
@@ -188,6 +190,8 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .onRepeat: "On repeat"
         case .trending: "Trending now"
         case .newReleases: "New releases"
+        case .yourPlaylists: "Your playlists"
+        case .favoriteAlbums: "Your favorite albums right now"
         }
     }
     var icon: String {
@@ -203,6 +207,8 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .onRepeat: "repeat"
         case .trending: "flame.fill"
         case .newReleases: "opticaldisc"
+        case .yourPlaylists: "music.note.list"
+        case .favoriteAlbums: "square.stack.fill"
         }
     }
 }

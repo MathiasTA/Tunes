@@ -3,7 +3,7 @@ import SwiftUI
 /// One thing shown in a Home section: a song, album, artist, playlist or chart.
 struct HomeItem: Identifiable {
     enum Art {
-        case song(Song), album(Album), artist(Artist), playlist(Playlist), chart(ChartSource)
+        case song(Song), album(Album), artist(Artist), playlist(Playlist), chart(ChartSource), liked
     }
     let id: String
     let title: String
@@ -21,6 +21,7 @@ struct HomeItem: Identifiable {
         case .artist(let a): .artist(a)
         case .playlist(let p): .playlist(p.id)
         case .chart(let c): .chart(c)
+        case .liked: .liked
         }
     }
 }
@@ -75,6 +76,7 @@ struct HomeSectionView: View {
         case .artist(let a): a.picture(size)
         case .playlist(let p): PlaylistTile(playlist: p, size: size)
         case .chart(let c): ChartArt(source: c, size: size)
+        case .liked: LikedTile(size: size)
         }
     }
 

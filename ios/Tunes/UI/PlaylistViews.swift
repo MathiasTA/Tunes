@@ -9,6 +9,7 @@ struct PlaylistView: View {
     @State private var newName = ""
     @State private var editing = false
     @State private var exportFile: ExportFile?
+    @State private var query = ""
     @State private var pickingCover = false
     @State private var coverItem: PhotosPickerItem?
 
@@ -26,7 +27,9 @@ struct PlaylistView: View {
         let downloadedCount = p.songs.filter { app.library.isDownloaded($0.id) }.count
         var deleteAction: ((IndexSet) -> Void)? = nil
         var moveAction: ((IndexSet, Int) -> Void)? = nil
-        if p.isManual {
+        let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
+        let numbered = Array(songs.enumerated()).filter { $0.element.matches(query) }
+        if p.isManual && !searching {
             let store = app.playlists
             let id = p.id
             deleteAction = { offsets in store.remove(songIDs: Set(offsets.map { songs[$0].id }), from: id) }
@@ -103,7 +106,7 @@ struct PlaylistView: View {
             .listRowBackground(Color.clear)
 
             Section {
-                ForEach(Array(songs.enumerated()), id: \.element.id) { i, s in
+                ForEach(numbered, id: \.element.id) { i, s in
                     HStack(spacing: 0) {
                         if p.isChart {
                             Text("\(i + 1)").font(.subheadline.weight(.semibold).monospacedDigit()).foregroundStyle(.secondary).frame(width: 30)
@@ -115,6 +118,8 @@ struct PlaylistView: View {
                 .onMove(perform: moveAction)
                 if songs.isEmpty {
                     Text(emptyText(p)).font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
+                } else if numbered.isEmpty {
+                    Text("No songs match \"\(query)\".").font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
                 }
             }
                     }
@@ -124,6 +129,7 @@ struct PlaylistView: View {
         .scrollContentBackground(.hidden)
         .themeBackground()
         .environment(\.editMode, .constant(editing ? .active : .inactive))
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Find in playlist")
         .navigationTitle(p.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

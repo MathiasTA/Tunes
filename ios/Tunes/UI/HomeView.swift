@@ -258,7 +258,42 @@ struct HomeView: View {
             return offline ? [] : trending.map { song($0) }
         case .newReleases:
             return offline ? [] : releases.map { HomeItem(id: "a\($0.id)", title: $0.title, subtitle: $0.artist?.name, art: .album($0)) }
+        case .yourPlaylists:
+            // Liked songs first, then your own playlists (pinned first, then most recently played).
+            var list: [HomeItem] = []
+            if !lib.liked.isEmpty {
+                list.append(HomeItem(id: "liked", title: "Liked songs", subtitle: "\(lib.liked.count) songs", art: .liked))
+            }
+            let own = app.playlists.manual.sorted {
+                if $0.pinned != $1.pinned { return $0.pinned }
+                return ($0.lastPlayedAt ?? $0.createdAt) > ($1.lastPlayedAt ?? $1.createdAt)
+            }
+            list += own.map { HomeItem(id: "p\($0.id)", title: $0.name, subtitle: "\($0.songs.count) songs", art: .playlist($0)) }
+            return list
+        case .favoriteAlbums:
+            return favoriteAlbums()
         }
+    }
+
+    /// Albums you've listened to most in the last 30 days (counting every song from them).
+    private func favoriteAlbums() -> [HomeItem] {
+        var seconds: [Int: Double] = [:]
+        var albums: [Int: Album] = [:]
+        for r in app.stats.records(.month) {
+            guard let song = app.library.entry(r.songID)?.song, var album = song.album, album.id > 0 else { continue }
+            if album.artist == nil { album.artist = song.artist }
+            seconds[album.id, default: 0] += r.seconds
+            albums[album.id] = album
+        }
+        return seconds.filter { $0.value >= 120 }
+            .sorted { $0.value > $1.value }
+            .compactMap { id, secs in
+                albums[id].map {
+                    HomeItem(id: "fa\(id)", title: $0.title,
+                             subtitle: [$0.artist?.name, Fmt.listening(secs)].compactMap { $0 }.joined(separator: " · "),
+                             art: .album($0))
+                }
+            }
     }
 
     private func subtitle(for p: Playlist) -> String {

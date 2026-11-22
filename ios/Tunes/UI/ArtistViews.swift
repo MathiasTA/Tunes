@@ -294,6 +294,7 @@ struct AlbumView: View {
     @Environment(\.look) private var look
     @State private var full: Album?
     @State private var songs: [Song] = []
+    @State private var query = ""
     @State private var error: String?
 
     private var shown: Album { full ?? album }
@@ -340,7 +341,7 @@ struct AlbumView: View {
             .listRowBackground(Color.clear)
 
             Section {
-                ForEach(Array(songs.enumerated()), id: \.element.id) { i, s in
+                ForEach(Array(songs.enumerated()).filter { $0.element.matches(query) }, id: \.element.id) { i, s in
                     SongRow(song: s, queue: songs, context: shown.title, trackNumber: i + 1)
                 }
             }
@@ -351,6 +352,7 @@ struct AlbumView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .themeBackground()
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Find in album")
         .navigationTitle(shown.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
