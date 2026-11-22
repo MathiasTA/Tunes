@@ -1,10 +1,10 @@
-import json, urllib.request
+import json, urllib.request, urllib.parse
 def get(path):
     return json.loads(urllib.request.urlopen("https://api.deezer.com/" + path, timeout=20).read())
-albums = get("artist/7411938/albums?limit=100")["data"]
-ids = [a["id"] for a in albums]
-print("RESULT single in discography:", 1141203311 in ids)
-print("RESULT newest by date:", sorted([(a.get("release_date"), a["title"], a.get("record_type")) for a in albums])[-4:])
-al = get("album/1141203311")
-print("RESULT album:", al.get("title"), al.get("record_type"), al.get("release_date"), "artist:", al["artist"]["name"], al["artist"]["id"],
-      "contributors:", [(c["name"], c["id"]) for c in al.get("contributors", [])], "available:", al.get("available"))
+for q in ["pardon my french glaive", "pardon my french", 'artist:"glaive" track:"pardon my french"']:
+    r = get("search/track?q=" + urllib.parse.quote(q) + "&limit=10")
+    print("RESULT track search", repr(q), "->", [(t["title"], t["artist"]["name"], t["album"]["title"]) for t in r.get("data", [])][:6])
+r = get("search/album?q=" + urllib.parse.quote("glaive") + "&limit=50")
+print("RESULT album search glaive ->", sorted([(a.get("title"), a["artist"]["id"]) for a in r.get("data", []) if a["artist"]["id"] == 7411938])[:60])
+top = get("artist/7411938/top?limit=50")
+print("RESULT top tracks albums ->", sorted({(t["album"]["title"]) for t in top.get("data", [])}))
