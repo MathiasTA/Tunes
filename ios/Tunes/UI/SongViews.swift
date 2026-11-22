@@ -987,6 +987,9 @@ struct SpotifyImportView: View {
     @State private var pickCSV = false
     @State private var findingRow: UUID?
     @State private var matchTask: Task<Void, Never>?
+    /// Spotify's embed page lists at most 100 songs, so a link import of exactly that many was probably cut short.
+    @State private var linkWasCapped = false
+    private static let linkLimit = 100
 
     private var done: Int { rows.filter { $0.result != nil }.count }
     private var matching: Bool { !rows.isEmpty && done < rows.count }
@@ -1015,6 +1018,7 @@ struct SpotifyImportView: View {
                     let text = try String(contentsOf: url, encoding: .utf8)
                     let parsed = try SpotifyImport.parseCSV(text)
                     begin(name: parsed.name.isEmpty ? url.deletingPathExtension().lastPathComponent : parsed.name, tracks: parsed.tracks)
+                    linkWasCapped = false
                 } catch { self.error = error.localizedDescription }
             }
             .sheet(isPresented: Binding(get: { findingRow != nil }, set: { if !$0 { findingRow = nil } })) {
@@ -1047,12 +1051,36 @@ struct SpotifyImportView: View {
         Section {
             Button { pickCSV = true } label: { Label("Choose a CSV file", systemImage: "doc.text") }
         } footer: {
-            Text("For private or very long playlists, export them as CSV with a site like Exportify, then pick the file here.")
+            Text("Links bring in up to 100 songs. For longer or private playlists, export them as a CSV file at exportify.app, then pick the file here.")
         }
         if let error { Section { Text(error).foregroundStyle(.red).font(.footnote) } }
     }
 
     @ViewBuilder private var review: some View {
+        if linkWasCapped {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Only the first \(Self.linkLimit) songs came through", systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    Text("Spotify only shares the first \(Self.linkLimit) songs of a playlist through a link. To get all of them, export the playlist as a CSV file and import that instead.")
+                        .font(.footnote)
+                    Text("1. Go to exportify.app and sign in with Spotify.\n2. Tap Export next to the playlist.\n3. Save the file to Files, then tap the button below.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button {
+                        pickCSV = true
+                    } label: {
+                        Label("Import the CSV instead", systemImage: "doc.text")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 2)
+                }
+                .padding(.vertical, 4)
+            } footer: {
+                Text("Or tap Create to keep just these \(rows.count).")
+            }
+        }
         Section {
             TextField("Playlist name", text: $name).font(.headline)
             if matching {
@@ -1161,6 +1189,7 @@ struct SpotifyImportView: View {
         do {
             let p = try await SpotifyImport.fetchPlaylist(link: link)
             begin(name: p.name, tracks: p.tracks)
+            linkWasCapped = p.tracks.count >= Self.linkLimit
         } catch {
             self.error = error.localizedDescription
         }
@@ -1168,6 +1197,7 @@ struct SpotifyImportView: View {
 
     private func begin(name: String, tracks: [ExternalTrack]) {
         guard !tracks.isEmpty else { error = SpotifyImportError.noTracks.localizedDescription; return }
+        matchTask?.cancel()
         self.name = name
         rows = tracks.map { Row(track: $0) }
         let snapshot = rows
