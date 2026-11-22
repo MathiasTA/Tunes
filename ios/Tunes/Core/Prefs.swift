@@ -4,9 +4,60 @@ import SwiftUI
 import UIKit
 
 enum ThemeMode: String, Codable, CaseIterable, Identifiable {
-    case dark, light, auto, black
+    case dark, black, light, auto
+    case midnight, sunset, ocean, aurora, forest, rose
     var id: String { rawValue }
-    var label: String { rawValue.capitalized }
+    var label: String { self == .rose ? "Rosé" : rawValue.capitalized }
+
+    /// The plain themes; everything else draws a gradient (or, for Aurora, moving light) behind the app.
+    var isClassic: Bool { [.dark, .black, .light, .auto].contains(self) }
+
+    var scheme: ColorScheme? {
+        switch self {
+        case .light, .rose: .light
+        case .auto: nil
+        default: .dark
+        }
+    }
+
+    /// Gradient colors from top to bottom (gradient themes only).
+    var gradient: [String] {
+        switch self {
+        case .midnight: ["#0B1026", "#1B1446", "#2E1458"]
+        case .sunset: ["#1C0B2B", "#4A1638", "#8C3B2E"]
+        case .ocean: ["#03192B", "#053F5C", "#0B7285"]
+        case .forest: ["#06140D", "#0F2A1B", "#1F4A2C"]
+        case .aurora: ["#050B14", "#07121F", "#050B14"]
+        case .rose: ["#FFF1F2", "#FCE7F3", "#EDE9FE"]
+        default: []
+        }
+    }
+
+    /// A solid color for the tab bar, so its buttons stay readable over the gradient.
+    var barHex: String? {
+        switch self {
+        case .midnight: "#0D1130"
+        case .sunset: "#1E0C2C"
+        case .ocean: "#041E33"
+        case .forest: "#08180F"
+        case .aurora: "#070F1A"
+        case .rose: "#FFF5F8"
+        default: nil
+        }
+    }
+
+    /// The accent picked automatically when you choose this theme (you can still change it).
+    var suggestedAccent: String? {
+        switch self {
+        case .midnight: "#A78BFA"
+        case .sunset: "#FB923C"
+        case .ocean: "#22D3EE"
+        case .forest: "#86EFAC"
+        case .aurora: "#34D399"
+        case .rose: "#DB2777"
+        default: nil
+        }
+    }
 }
 
 enum CornerStyle: String, Codable, CaseIterable, Identifiable {
@@ -274,19 +325,14 @@ final class Prefs {
     var initial: String { displayName.first.map { String($0).uppercased() } ?? "T" }
     var isPrivate: Bool { data.privateMode.isActive }
 
-    var colorScheme: ColorScheme? {
-        switch data.theme {
-        case .dark, .black: .dark
-        case .light: .light
-        case .auto: nil
-        }
-    }
+    var colorScheme: ColorScheme? { data.theme.scheme }
 }
 
 /// Colors and shapes derived from appearance settings, available to every view.
 struct Look: Equatable {
     var accent: Color = Color(hex: "#34D399")
-    var black = false
+    var theme: ThemeMode = .dark
+    var black: Bool { theme == .black }
     var corner: CGFloat = 1
     var artShape: ArtShape = .soft
     var playerBackground: PlayerBackground = .coverColor
@@ -322,7 +368,7 @@ extension EnvironmentValues {
 extension Prefs {
     var look: Look {
         Look(accent: accent,
-             black: data.theme == .black,
+             theme: data.theme,
              corner: data.corners == .sharp ? 0.4 : (data.corners == .round ? 1.6 : 1),
              artShape: data.artShape,
              playerBackground: data.playerBackground)
@@ -337,14 +383,23 @@ struct Surface {
     }
     private static func gray(_ v: CGFloat) -> UIColor { UIColor(red: v, green: v, blue: v + 0.012, alpha: 1) }
 
+    /// A solid background color. Gradient themes draw `ThemeBackground` instead; this is their base color.
     static func background(_ look: Look) -> Color {
-        look.black ? .black : dynamic(light: .systemBackground, dark: gray(0.075))
+        if !look.theme.isClassic, let base = look.theme.gradient.first { return Color(hex: base) }
+        return look.black ? .black : dynamic(light: .systemBackground, dark: gray(0.075))
     }
     static func card(_ look: Look) -> Color {
-        look.black ? Color(white: 0.08) : dynamic(light: .secondarySystemBackground, dark: gray(0.13))
+        if !look.theme.isClassic { return look.theme.scheme == .light ? Color.white.opacity(0.6) : Color.white.opacity(0.08) }
+        return look.black ? Color(white: 0.08) : dynamic(light: .secondarySystemBackground, dark: gray(0.13))
     }
     static func raised(_ look: Look) -> Color {
-        look.black ? Color(white: 0.13) : dynamic(light: .tertiarySystemBackground, dark: gray(0.18))
+        if !look.theme.isClassic { return look.theme.scheme == .light ? Color.white.opacity(0.8) : Color.white.opacity(0.14) }
+        return look.black ? Color(white: 0.13) : dynamic(light: .tertiarySystemBackground, dark: gray(0.18))
+    }
+    /// The tab bar: always solid.
+    static func bar(_ look: Look) -> Color {
+        if let hex = look.theme.barHex { return Color(hex: hex) }
+        return card(look)
     }
     /// Background behind grouped settings lists.
     static func grouped(_ look: Look) -> Color {
@@ -362,7 +417,9 @@ struct ThemedForm: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .background(Surface.grouped(look).ignoresSafeArea())
+            .background {
+                if look.theme.isClassic { Surface.grouped(look).ignoresSafeArea() } else { ThemeBackground().ignoresSafeArea() }
+            }
             .labelStyle(SettingsLabelStyle())
             .tint(look.accent)
     }
@@ -418,5 +475,57 @@ private struct TunesSwitch: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isToggle)
         .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
+}
+
+
+/// The full-screen background for the current theme: a plain color, a gradient, or Aurora's slowly drifting light.
+struct ThemeBackground: View {
+    @Environment(\.look) private var look
+
+    var body: some View {
+        let theme = look.theme
+        if theme.isClassic {
+            Surface.background(look)
+        } else if theme == .aurora {
+            AuroraBackground(base: Color(hex: theme.gradient[0]))
+        } else {
+            LinearGradient(colors: theme.gradient.map { Color(hex: $0) }, startPoint: .top, endPoint: .bottom)
+        }
+    }
+}
+
+private struct AuroraBackground: View {
+    let base: Color
+    @State private var drift = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { g in
+            let w = g.size.width, h = g.size.height
+            ZStack {
+                base
+                blob("#10B981", size: w * 1.1).offset(x: drift ? -w * 0.25 : w * 0.15, y: drift ? -h * 0.30 : -h * 0.18)
+                blob("#8B5CF6", size: w * 1.0).offset(x: drift ? w * 0.30 : -w * 0.10, y: drift ? -h * 0.05 : -h * 0.25)
+                blob("#0EA5E9", size: w * 0.9).offset(x: drift ? -w * 0.05 : w * 0.25, y: drift ? h * 0.30 : h * 0.15)
+            }
+            .frame(width: w, height: h)
+            .clipped()
+        }
+        .onAppear {
+            guard !reduceMotion, AppModel.shared.prefs.data.animations else { return }
+            withAnimation(.easeInOut(duration: 18).repeatForever(autoreverses: true)) { drift = true }
+        }
+    }
+
+    private func blob(_ hex: String, size: CGFloat) -> some View {
+        Circle().fill(Color(hex: hex).opacity(0.32)).frame(width: size, height: size).blur(radius: 90)
+    }
+}
+
+extension View {
+    /// Puts the current theme's background behind a screen.
+    func themeBackground() -> some View {
+        background { ThemeBackground().ignoresSafeArea() }
     }
 }

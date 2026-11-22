@@ -378,13 +378,10 @@ struct AppearanceView: View {
         @Bindable var prefs = app.prefs
         Form {
             Section {
-                Picker("Theme", selection: $prefs.data.theme) {
-                    Text("Dark").tag(ThemeMode.dark); Text("Black").tag(ThemeMode.black)
-                    Text("Light").tag(ThemeMode.light); Text("Auto").tag(ThemeMode.auto)
-                }
-                .pickerStyle(.segmented)
+                ThemeGrid()
+                    .padding(.vertical, 6)
             } header: { Text("Theme") } footer: {
-                Text("Dark uses soft charcoal greys. Black uses pure black, which looks deeper and saves battery on iPhone screens that light each pixel (iPhone X and newer, except XR and 11). Auto follows your iPhone's light/dark setting.")
+                Text("Dark uses soft charcoal greys. Black is pure black, which saves battery on iPhone X and newer (except XR and 11). Auto follows your iPhone's light/dark setting. The others paint a gradient behind the whole app; Aurora's colors drift slowly. Picking one of those also picks a matching accent color, which you can change below.")
             }
             Section {
                 HStack {
@@ -461,6 +458,70 @@ struct AppearanceView: View {
                 if let error { app.show("Couldn't change icon: \(error.localizedDescription)") }
                 else { app.prefs.data.appIcon = name }
             }
+        }
+    }
+}
+
+/// Theme swatches: a mini preview of each theme's background, a card and the accent color.
+struct ThemeGrid: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 14) {
+            ForEach(ThemeMode.allCases) { theme in
+                let selected = app.prefs.data.theme == theme
+                Button {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        app.prefs.data.theme = theme
+                        if let a = theme.suggestedAccent { app.prefs.data.accentHex = a }
+                    }
+                    app.haptic(.selection)
+                } label: {
+                    VStack(spacing: 5) {
+                        swatch(theme)
+                            .frame(height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(selected ? look.accent : Color.secondary.opacity(0.25), lineWidth: selected ? 3 : 1)
+                                    .padding(selected ? -3 : 0)
+                            }
+                        Text(theme.label).font(.caption2.weight(selected ? .bold : .regular))
+                            .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(theme.label) theme")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func swatch(_ theme: ThemeMode) -> some View {
+        let light = theme.scheme == .light
+        ZStack(alignment: .bottomLeading) {
+            switch theme {
+            case .dark: Color(white: 0.075)
+            case .black: Color.black
+            case .light: Color(white: 0.97)
+            case .auto:
+                HStack(spacing: 0) { Color(white: 0.97); Color(white: 0.075) }
+            case .aurora:
+                ZStack {
+                    Color(hex: "#050B14")
+                    Circle().fill(Color(hex: "#10B981").opacity(0.6)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
+                    Circle().fill(Color(hex: "#8B5CF6").opacity(0.6)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
+                }
+            default:
+                LinearGradient(colors: theme.gradient.map { Color(hex: $0) }, startPoint: .top, endPoint: .bottom)
+            }
+            HStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 3).fill((light ? Color.black : Color.white).opacity(0.18)).frame(width: 26, height: 8)
+                Circle().fill(Color(hex: theme.suggestedAccent ?? app.prefs.data.accentHex)).frame(width: 9, height: 9)
+            }
+            .padding(7)
         }
     }
 }

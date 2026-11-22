@@ -16,7 +16,7 @@ struct HomeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Surface.background(look).ignoresSafeArea()
+            ThemeBackground().ignoresSafeArea()
             if searching {
                 VStack(spacing: 0) {
                     searchField
@@ -66,7 +66,7 @@ struct HomeView: View {
             }
             .padding(.top, 4)
         }
-        .background(Surface.background(look))
+        .themeBackground()
         .refreshable {
             await app.playlists.refreshAll(force: true)
             await loadDiscovery(force: true)

@@ -114,7 +114,7 @@ struct StatsView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
         }
-        .background(Surface.background(look))
+        .themeBackground()
         .navigationTitle("Stats")
     }
 

@@ -117,7 +117,7 @@ struct PlaylistView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Surface.background(look))
+        .themeBackground()
         .environment(\.editMode, .constant(editing ? .active : .inactive))
         .navigationTitle(p.name)
         .navigationBarTitleDisplayMode(.inline)

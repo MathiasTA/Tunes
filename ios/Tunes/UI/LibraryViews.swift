@@ -32,7 +32,7 @@ struct LibraryView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Surface.background(look))
+        .themeBackground()
         .navigationTitle("Library")
         .searchable(text: $text, prompt: "Filter your library")
         .toolbar {
@@ -250,7 +250,7 @@ struct LikedSongsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Surface.background(look))
+        .themeBackground()
         .navigationTitle("Liked songs")
         .navigationBarTitleDisplayMode(.inline)
     }

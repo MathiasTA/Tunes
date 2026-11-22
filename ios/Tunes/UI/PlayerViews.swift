@@ -128,7 +128,7 @@ struct FullPlayerView: View {
             LinearGradient(colors: [coverColor.opacity(0.85), Surface.background(look)], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
         case .blur:
             ZStack {
-                Surface.background(look)
+                ThemeBackground()
                 if let s = app.player.currentSong {
                     // Sized to the screen (not a fixed 500 pt), so the blur can't widen the player and shove the cover sideways.
                     GeometryReader { g in
@@ -145,7 +145,7 @@ struct FullPlayerView: View {
             }
             .ignoresSafeArea()
         case .plain:
-            Surface.background(look).ignoresSafeArea()
+            ThemeBackground().ignoresSafeArea()
         }
     }
 

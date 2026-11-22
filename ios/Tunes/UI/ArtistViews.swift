@@ -80,7 +80,7 @@ struct ArtistView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Surface.background(look))
+        .themeBackground()
         .navigationTitle(shown.name)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -140,7 +140,7 @@ struct ArtistMoreView: View {
     @Environment(\.look) private var look
     var body: some View {
         ScrollView { ArtistExtras(artist: artist) }
-            .background(Surface.background(look))
+            .themeBackground()
             .navigationTitle(artist.name)
             .navigationBarTitleDisplayMode(.inline)
     }
@@ -343,7 +343,7 @@ struct AlbumView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Surface.background(look))
+        .themeBackground()
         .navigationTitle(shown.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -433,7 +433,7 @@ struct DiscographyView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Surface.background(look))
+        .themeBackground()
         .miniPlayerSpace()
         .navigationTitle("Discography")
         .navigationBarTitleDisplayMode(.inline)

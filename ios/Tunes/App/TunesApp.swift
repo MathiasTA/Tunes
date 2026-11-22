@@ -159,7 +159,7 @@ extension View {
     /// which made the Home / Library / Stats buttons hard to read.
     func solidTabBar(_ look: Look) -> some View {
         toolbarBackground(.visible, for: .tabBar)
-            .toolbarBackground(Surface.card(look), for: .tabBar)
+            .toolbarBackground(Surface.bar(look), for: .tabBar)
     }
 
     /// Floats the mini player above the tab bar. Each screen makes room for it with `miniPlayerSpace()`.

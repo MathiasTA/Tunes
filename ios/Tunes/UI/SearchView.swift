@@ -99,7 +99,7 @@ struct SearchResultsList: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Surface.background(look))
+        .themeBackground()
         .overlay {
             if loading && results.isEmpty { ProgressView() }
             else if query.isEmpty && recents.isEmpty {
