@@ -262,6 +262,32 @@ final class Library {
         analyze(id)
     }
 
+    /// Downloads a YouTube video's audio as a song of your own (for songs the catalog doesn't have).
+    /// `song` has a negative id; link real artists to it so it counts for them in stats.
+    func importFromYouTube(_ video: VideoCandidate, as song: Song, artworkData: Data?) async throws {
+        let id = song.id
+        jobs[id] = song
+        states[id] = .downloading(0)
+        defer {
+            if case .downloading = states[id] { states[id] = nil }
+            jobs[id] = nil
+        }
+        let fileName = "\(id).m4a"
+        let dest = Paths.audioDir.appending(path: fileName)
+        let prefs = AppModel.shared.prefs.data
+        try await YouTubeMedia.downloadAudio(videoID: video.id, to: dest, saveSpace: prefs.quality == .saver, allowRemote: prefs.allowRemoteExtraction) { p in
+            Task { @MainActor in AppModel.shared.library.setProgress(id, p) }
+        }
+        var e = LibraryEntry(song: song, source: .youtube(videoID: video.id, title: "\(video.title) · \(video.channel)"), fileName: fileName)
+        if let artworkData {
+            try? artworkData.write(to: song.localArtworkURL, options: .atomic)
+            e.hasCustomArtwork = true
+        }
+        insert(e)
+        analyze(id)
+        AppModel.shared.haptic(.success)
+    }
+
     // MARK: Importing files
 
     /// Copies an audio file into the library. `song` may be a catalog song (then it counts as that real song)

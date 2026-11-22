@@ -19,6 +19,7 @@ enum AppSheet: Identifiable {
     case autoPlaylist(UUID?)
     case settings
     case downloads
+    case importYouTube
     case fixDownload(Song)
 
     var id: String {
@@ -33,6 +34,7 @@ enum AppSheet: Identifiable {
         case .video(let s): "video-\(s.id)"
         case .profile: "profile"
         case .importFiles: "import"
+        case .importYouTube: "import-youtube"
         case .spotifyImport: "spotify"
         case .createPlaylist: "create"
         case .autoPlaylist(let id): "auto-\(id?.uuidString ?? "new")"

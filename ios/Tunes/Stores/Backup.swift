@@ -35,6 +35,7 @@ enum BackupFiles {
     @MainActor
     static func ownSongFileNames() -> [String] {
         AppModel.shared.library.entries.compactMap { e in
+            if e.id < 0 { return e.fileName }
             if case .file = e.source { return e.fileName } else { return nil }
         }
     }
@@ -150,7 +151,10 @@ final class BackupManager {
                 try? image.write(to: Paths.artDir.appending(path: name), options: .atomic)
             }
             // Songs imported from files: copied back from the backup folder, if Tunes can reach it.
-            let own = file.library.compactMap { e -> String? in if case .file = e.source { return e.fileName } else { return nil } }
+            let own = file.library.compactMap { e -> String? in
+                if e.id < 0 { return e.fileName }
+                if case .file = e.source { return e.fileName } else { return nil }
+            }
             var ownMissing = 0
             if !own.isEmpty {
                 let folders = [resolveFolder(), url.deletingLastPathComponent()].compactMap { $0 }

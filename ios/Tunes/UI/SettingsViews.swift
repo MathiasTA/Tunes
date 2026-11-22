@@ -48,6 +48,7 @@ struct SettingsView: View {
 .themedRow()
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
+                LabeledContent("Build", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1")
                 LabeledContent("Songs downloaded", value: "\(app.library.entries.count)")
                 LabeledContent("Catalog", value: "Deezer")
                 LabeledContent("Lyrics", value: "LRCLIB")

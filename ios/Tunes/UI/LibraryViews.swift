@@ -12,6 +12,7 @@ struct LibraryView: View {
     @State private var filter: Filter = .all
     @State private var text = ""
     @State private var showCreate = false
+    @State private var showImport = false
 
     var body: some View {
         List {
@@ -53,6 +54,12 @@ struct LibraryView: View {
                 .disabled(app.library.entries.isEmpty)
                 .accessibilityLabel("Shuffle all")
             }
+        }
+        .confirmationDialog("Import songs", isPresented: $showImport, titleVisibility: .visible) {
+            Button("From a file on your phone") { app.sheet = .importFiles }
+            Button("From YouTube") { app.sheet = .importYouTube }
+        } message: {
+            Text("For songs that aren't in the catalog. Link them to the real artist so they count in your stats.")
         }
         .confirmationDialog("Create / import playlist", isPresented: $showCreate, titleVisibility: .visible) {
             Button("New playlist") { app.sheet = .createPlaylist }
@@ -155,8 +162,8 @@ struct LibraryView: View {
     }
 
     @ViewBuilder private var songRows: some View {
-        Button { app.sheet = .importFiles } label: {
-            Label("Import files from phone", systemImage: "folder.badge.plus").font(.headline).foregroundStyle(look.accent)
+        Button { showImport = true } label: {
+            Label("Import songs", systemImage: "square.and.arrow.down.on.square").font(.headline).foregroundStyle(look.accent)
         }
         .buttonStyle(.plain)
         let list = songs

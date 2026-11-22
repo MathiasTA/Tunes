@@ -126,6 +126,7 @@ struct RootView: View {
         case .video(let song): VideoPlayerView(song: song)
         case .profile: ProfileView()
         case .importFiles: ImportFilesView()
+        case .importYouTube: ImportYouTubeView()
         case .spotifyImport: SpotifyImportView()
         case .createPlaylist: CreatePlaylistView()
         case .autoPlaylist(let id): AutoPlaylistEditor(playlistID: id)
