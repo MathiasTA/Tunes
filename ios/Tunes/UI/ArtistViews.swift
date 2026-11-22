@@ -131,6 +131,10 @@ struct ArtistView: View {
                 top = ft.map { s in var s = s; if s.artist.id == fa.id { s.artist = fa }; return s }
                 albums = fal
             }
+            // Then add releases Deezer's list is missing (it can lag weeks behind new singles).
+            let known = app.library.songs(byArtist: artist.id)
+            let complete = await Catalog.discography(artist: artist, known: known)
+            if complete.count > fal.count { withAnimation(.easeOut(duration: 0.25)) { albums = complete } }
         } catch {
             loadError = "Couldn't load artist info. Your downloads are still here."
         }
@@ -461,7 +465,7 @@ struct DiscographyView: View {
         }
         .task {
             guard albums.isEmpty else { return }
-            albums = (try? await Catalog.albums(artist: artist)) ?? []
+            albums = await Catalog.discography(artist: artist, known: app.library.songs(byArtist: artist.id))
             loadingAlbums = false
         }
         .task(id: filter) {

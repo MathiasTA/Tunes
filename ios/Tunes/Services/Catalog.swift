@@ -79,6 +79,39 @@ enum Catalog {
         return l.items.map { $0.model(fallbackArtist: artist) }.sorted { ($0.releaseDate ?? "") > ($1.releaseDate ?? "") }
     }
 
+    /// An artist's releases, including ones Deezer's own release list hasn't caught up with yet.
+    /// Deezer's per-artist list can lag behind by weeks (new singles missing, some old ones too), so this also
+    /// looks at album and song searches, the artist's top songs, and albums of songs you already have,
+    /// keeping only releases where this exact artist (same Deezer ID) is the main artist.
+    static func discography(artist: Artist, known: [Song] = []) async -> [Album] {
+        let quoted = "artist:\"\(artist.name)\""
+        async let listedTask = try? albums(artist: artist)
+        async let searchedTask = try? searchAlbums(quoted, limit: 100)
+        async let songsTask = try? searchSongs(quoted, limit: 100)
+        async let topTask = try? topSongs(artistID: artist.id, limit: 50)
+        let (listed, searched, songs, top) = await (listedTask, searchedTask, songsTask, topTask)
+
+        var byID: [Int: Album] = [:]
+        for a in listed ?? [] { byID[a.id] = a }
+        var needDetails: [Int] = []
+        for a in searched ?? [] where a.artist?.id == artist.id && byID[a.id] == nil {
+            byID[a.id] = a
+            if a.releaseDate == nil { needDetails.append(a.id) }
+        }
+        for s in (songs ?? []) + (top ?? []) + known where s.artist.id == artist.id {
+            if let al = s.album, al.id > 0, byID[al.id] == nil, !needDetails.contains(al.id) { needDetails.append(al.id) }
+        }
+        // Fill in release dates and types for releases only found through searches (a few at a time).
+        for id in needDetails.prefix(20) {
+            if let full = try? await album(id).0, full.artist?.id == artist.id || full.artist == nil {
+                var a = full
+                if a.artist == nil { a.artist = artist }
+                byID[id] = a
+            }
+        }
+        return byID.values.sorted { ($0.releaseDate ?? "") > ($1.releaseDate ?? "") }
+    }
+
     static func related(artistID: Int, limit: Int = 12) async throws -> [Artist] {
         let l: DZList<DZArtist> = try await get("artist/\(artistID)/related", ["limit": "\(limit)"])
         return l.items.map(\.model)
