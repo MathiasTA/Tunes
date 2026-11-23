@@ -163,6 +163,7 @@ struct HomeView: View {
 
     private func loadDiscovery(force: Bool = false) async {
         guard !offline else { return }
+        Task { await app.library.fillAlbumTypes() }
         if trending.isEmpty || force { trending = (try? await Catalog.chartTracks(genreID: 0, limit: 20)) ?? trending }
         if releases.isEmpty || force { releases = (try? await Catalog.newReleases(limit: 20)) ?? releases }
     }
@@ -281,6 +282,12 @@ struct HomeView: View {
         var albums: [Int: Album] = [:]
         for r in app.stats.records(.month) {
             guard let song = app.library.entry(r.songID)?.song, var album = song.album, album.id > 0 else { continue }
+            // Albums and EPs only. Until Tunes knows the release type, a release named like the song counts as a single.
+            if let type = album.recordType {
+                if type == "single" { continue }
+            } else if album.title.normalizedForMatching == song.title.normalizedForMatching {
+                continue
+            }
             if album.artist == nil { album.artist = song.artist }
             seconds[album.id, default: 0] += r.seconds
             albums[album.id] = album

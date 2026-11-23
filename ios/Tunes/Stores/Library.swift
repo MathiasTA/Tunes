@@ -208,10 +208,12 @@ final class Library {
                 Task { @MainActor in AppModel.shared.library.setProgress(id, p) }
             }
             var full = song
-            if full.album?.genre == nil, let albumID = full.album?.id, albumID > 0,
+            if full.album?.genre == nil || full.album?.recordType == nil, let albumID = full.album?.id, albumID > 0,
                let info = try? await Catalog.album(albumID) {
-                full.album?.genre = info.0.genre
+                if full.album?.genre == nil { full.album?.genre = info.0.genre }
                 if full.album?.releaseDate == nil { full.album?.releaseDate = info.0.releaseDate }
+                full.album?.recordType = info.0.recordType
+                if full.album?.trackCount == nil { full.album?.trackCount = info.0.trackCount }
             }
             await fetchArtwork(for: full)
             var entry = LibraryEntry(song: full, source: .youtube(videoID: candidate.id, title: "\(candidate.title) · \(candidate.channel)"), fileName: fileName)
@@ -286,6 +288,24 @@ final class Library {
         insert(e)
         analyze(id)
         AppModel.shared.haptic(.success)
+    }
+
+    /// Songs downloaded before Tunes saved whether their release is an album, EP or single:
+    /// looks that up (a few albums per launch) so things like "favorite albums" can leave singles out.
+    func fillAlbumTypes(maxAlbums: Int = 40) async {
+        var albumIDs: [Int] = []
+        for e in entries where e.song.album?.recordType == nil {
+            if let id = e.song.album?.id, id > 0, !albumIDs.contains(id) { albumIDs.append(id) }
+        }
+        for albumID in albumIDs.prefix(maxAlbums) {
+            guard let info = try? await Catalog.album(albumID) else { continue }
+            for e in entries where e.song.album?.id == albumID {
+                update(e.id) {
+                    $0.song.album?.recordType = info.0.recordType
+                    if $0.song.album?.trackCount == nil { $0.song.album?.trackCount = info.0.trackCount }
+                }
+            }
+        }
     }
 
     // MARK: Importing files
