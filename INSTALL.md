@@ -1,68 +1,164 @@
-# Installing Tunes on your iPhone
+# How to install Tunes on your iPhone
 
-Tunes isn't on the App Store. You install it yourself with **SideStore**, a free app that signs apps with your own Apple Account. You need a computer once, to set up SideStore. After that, everything happens on the iPhone.
+This guide assumes you've never done this before. Follow it from top to bottom and you'll be fine. Set aside about **30–45 minutes** the first time. After that, updating takes a minute.
+
+---
+
+## First, what's going on?
+
+Tunes isn't in the App Store, so you can't just tap "Get". Instead you install it yourself, which is called **sideloading**. It's allowed by Apple and doesn't harm your phone.
+
+To do it, you use a free app called **SideStore**. SideStore is like a tiny App Store on your phone that installs apps you've downloaded yourself. It uses your own Apple Account to do it.
+
+The order of things:
+
+1. **Install SideStore** (once). This is the only part that needs a computer.
+2. **Download Tunes** to your iPhone.
+3. **Install Tunes** using SideStore.
+4. **Refresh it now and then**, so it keeps opening.
+
+> 💡 **About GitHub:** This page is on a website called GitHub. It's just where the app's files are kept. You don't need an account, and you don't need to understand anything else on the site.
+
+---
 
 ## What you need
 
-- An iPhone with **iOS 17 or newer** and a passcode set
-- An **Apple Account** (the free one is fine)
-- **Wi-Fi**
-- A **computer** for the first setup only (Windows, Mac, Linux or a Chromebook)
+- ✅ **An iPhone** with iOS 17 or newer. Check in **Settings → General → About → iOS Version**.
+- ✅ **A passcode on your iPhone** (the code you unlock it with).
+- ✅ **Your Apple Account** email and password (the one you use for the App Store).
+- ✅ **Wi-Fi.** Mobile data doesn't work for installing.
+- ✅ **A computer, only for Part 1.** Windows, Mac, Linux or a Chromebook. It can be a friend's computer.
+- ✅ **The cable** you charge your iPhone with, to connect it to the computer.
 
-## Step 1: Set up SideStore (one time, with a computer)
+---
 
-Follow the official guide at **https://docs.sidestore.io**. In short:
+## Part 1: Install SideStore (one time only, needs a computer)
 
-1. Install **LocalDevVPN** from the App Store on your iPhone.
-2. On your computer, download **iloader** from the SideStore guide and use it to install SideStore on your iPhone. On Windows you also need iTunes, downloaded from Apple's website.
-3. Open SideStore on your iPhone and sign in with your Apple Account.
+SideStore has its own official guide with pictures: **https://docs.sidestore.io**. If anything below doesn't match what you see, follow theirs. Here's the short version.
 
-If iOS asks you to turn on **Developer Mode**, go to **Settings → Privacy & Security → Developer Mode**, turn it on, and restart the iPhone.
+### 1. On your iPhone: get LocalDevVPN
 
-If something goes wrong here, the SideStore guide and its community are the best places to get help. This part has nothing to do with Tunes.
+1. Open the **App Store**, search for **LocalDevVPN** and install it. It's free.
+2. Open it and tap **Connect**.
+3. If your iPhone asks to **"Add VPN Configurations"**, tap **Allow** and enter your passcode.
 
-## Step 2: Download Tunes
+> 💡 LocalDevVPN isn't a normal VPN. It doesn't hide your location or slow your internet. It just lets SideStore talk to your iPhone. You only need it switched on while installing or refreshing apps.
 
-1. On your iPhone, open this repository's **Releases** page in Safari. It's in the right-hand column on GitHub, or add `/releases` to the end of the repository address.
-2. Under the newest release, tap **Tunes.ipa**.
-3. Tap **Download**. The file is saved to the Files app, in Downloads.
+### 2. On the computer: get iloader
 
-## Step 3: Install it with SideStore
+iloader is the program that puts SideStore on your phone. Only download it from **https://iloader.app** or **https://github.com/nab138/iloader**. Those are the official places.
 
-1. Open **LocalDevVPN** and connect.
-2. Open **SideStore** and go to the **My Apps** tab.
-3. Tap **+** in the top corner.
-4. Pick **Tunes.ipa** from Downloads.
-5. Wait until Tunes appears in the list. Then open it from your Home Screen.
+- **Windows:** first install **iTunes**. The version from Apple's website works best; the Microsoft Store one also works. Then download and run the iloader installer (the **.msi** file).
+- **Mac:** download the **.dmg** file, open it and drag iloader into Applications.
+- **Linux / Chromebook:** follow the steps on https://docs.sidestore.io (Installation → Prerequisites).
 
-If iOS says **"Untrusted Developer"**, go to **Settings → General → VPN & Device Management**, tap your Apple Account, and tap **Trust**.
+### 3. Install SideStore
 
-## Step 4: Keep it working
+1. Plug your iPhone into the computer with the cable.
+2. If your iPhone asks **"Trust This Computer?"**, tap **Trust** and enter your passcode.
+3. Open **iloader** on the computer.
+4. Sign in with your **Apple Account**. Type the email exactly; capital letters matter.
+5. Pick your iPhone from the list.
+6. Click **Install SideStore (Stable)** and wait until it says it's done.
 
-Apps installed with a free Apple Account stop opening after **7 days** unless they're refreshed.
+You can unplug the phone now. **You won't need the computer again.**
 
-- Every few days, connect **LocalDevVPN**, open **SideStore**, and tap **Refresh All**.
-- If Tunes has already stopped opening, do the same thing. Your music, playlists and stats are kept.
+### 4. On your iPhone: allow SideStore to open
+
+1. Open **Settings → General → VPN & Device Management**.
+2. Under **Developer App**, tap your Apple Account email.
+3. Tap **Trust "…"**, then **Allow & Restart** if asked, and enter your passcode.
+4. Go to **Settings → Privacy & Security**, scroll to the very bottom, and turn on **Developer Mode**. Your iPhone restarts. After it restarts, tap **Turn On** if it asks.
+
+### 5. Finish setting up SideStore
+
+1. Open **LocalDevVPN** and tap **Connect**.
+2. Open **SideStore** and sign in with the **same Apple Account** you used in iloader.
+3. Tap the **My Apps** tab at the bottom.
+4. Next to SideStore, tap the button that says **7 DAYS**.
+5. If it asks about a certificate, tap **Yes** or **Refresh Now**.
+
+Your phone might jump back to the Home Screen. That's normal and means it worked.
+
+🎉 **SideStore is installed.** The hard part is over.
+
+---
+
+## Part 2: Download Tunes (on your iPhone)
+
+1. On your iPhone, open **Safari** and go to:
+
+   **https://github.com/MathiasTA/Tunes/releases/latest**
+
+2. Scroll down to **Assets** and tap **Tunes.ipa**. The ".ipa" is what an iPhone app file is called.
+3. If Safari asks, tap **Download**.
+
+The file goes into the **Files** app, in the **Downloads** folder.
+
+---
+
+## Part 3: Install Tunes
+
+1. Open **LocalDevVPN** and tap **Connect**.
+2. Open **SideStore** and go to **My Apps**.
+3. Tap the **+** button at the top.
+4. Find and tap **Tunes.ipa** (look in **Downloads**).
+5. Wait a moment. When **Tunes** appears in the list, it's installed.
+
+Find Tunes on your Home Screen and open it. It'll ask what to call you, and then you're in. 🎶
+
+---
+
+## Part 4: Keep it working (the 7-day refresh)
+
+Apple only lets apps installed with a free Apple Account work for **7 days** at a time. Refreshing resets the 7 days. It takes a few seconds:
+
+1. Open **LocalDevVPN** and tap **Connect**.
+2. Open **SideStore** → **My Apps** → tap **Refresh All**.
+
+Do this every few days. The number next to each app shows how many days are left.
+
+**If Tunes stops opening, don't worry.** Your music, playlists and stats are still there. Just do the refresh above and it opens again.
+
+> ⚠️ A free Apple Account can only have **3 sideloaded apps** at a time, and SideStore counts as one. So you can have SideStore, Tunes and one more.
+
+---
 
 ## Updating to a new version
 
-1. Download the newest **Tunes.ipa** from Releases, the same way as in step 2.
-2. In SideStore, tap **+** and pick the new file. It installs over the old version.
+New versions of Tunes appear on the same page as before. Tunes' version number is in **Settings → About**.
 
-Your downloaded songs, playlists, likes and stats stay.
+1. Download the new **Tunes.ipa** the same way as in Part 2.
+2. Connect **LocalDevVPN**, open **SideStore** → **My Apps**, tap **+** and pick the new file.
 
-## Getting started in the app
+It installs over the old one. **Everything you had stays:** downloads, playlists, likes and stats.
 
-- **Search** from the bar on Home. Tap a song to hear a preview, or the arrow to download it.
-- Downloaded songs play offline and stay linked to the real artist, so your stats and Wrapped are accurate.
-- **Import from Spotify:** Library → Create / import playlist → Import from Spotify, then paste a public playlist link.
-- **Shows near you** on artist pages are optional. They need a free key from developer.ticketmaster.com, pasted in Settings → Connections.
+---
 
-## Building your own copy (optional)
+## Something went wrong?
 
-You don't need a Mac. GitHub builds the app for you.
+| What you see | What to do |
+|---|---|
+| SideStore says it can't connect to your device | Open **LocalDevVPN**, make sure it says **Connected**, and try again. Make sure you're on **Wi-Fi**. |
+| "Untrusted Developer" when opening an app | Settings → General → VPN & Device Management → tap your email → **Trust**. |
+| Can't find Developer Mode in settings | Install SideStore first (Part 1, step 3). The setting only appears after that. |
+| Tunes won't open after a few days | It needs a refresh. See Part 4. |
+| SideStore asks for a "pairing file" | It sometimes needs renewing after an iPhone update. Open **iloader** on a computer again and use its pairing file option, or see "Pairing file" on https://docs.sidestore.io. |
+| iloader can't see your iPhone | Unlock your phone, tap **Trust** if asked, and try a different cable or USB port. On Windows, make sure iTunes is installed. |
 
-1. **Fork** this repository on GitHub.
-2. In your fork, open the **Actions** tab and turn on workflows.
-3. Open **Build IPA → Run workflow**. A build takes about 10 minutes.
-4. When it's done, your fork's **Releases** page has a fresh **Tunes.ipa**. Install it as in step 3.
+For problems with SideStore or iloader, the official help is at **https://docs.sidestore.io**.
+
+---
+
+## Good to know
+
+- **It's free.** Tunes, SideStore, LocalDevVPN and iloader all cost nothing.
+- **Your Apple Account** is only used to sign the apps so your iPhone accepts them. Tunes never sees it.
+- **No account is needed for Tunes.** Everything stays on your phone.
+- **Songs come from YouTube** and song info comes from Deezer. If YouTube changes something, downloads can stop working until Tunes gets an update.
+
+---
+
+## For the curious: building your own copy
+
+You don't need this to use Tunes. If you know your way around GitHub: fork this repository, turn on Actions, and run **Build IPA**. Your copy's Releases page then gets its own Tunes.ipa. No Mac is needed.
