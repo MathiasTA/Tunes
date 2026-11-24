@@ -29,7 +29,22 @@ final class AudioEngine {
         var overlapIn: Double = 0
         var overlapOut: Double = 0
         var pausedPosition: Double?
+        /// The file format this deck's node is connected with.
+        var format: AVAudioFormat?
+        /// Player sample time where the current segment began, and how many frames it has.
+        /// (With gapless, several songs play back to back on one deck, so this moves forward.)
+        var baseSample: AVAudioFramePosition = 0
+        var currentFrames: AVAudioFramePosition = 0
+        /// The next song, already scheduled on this same deck right after the current one (true gapless).
+        var queued: Queued?
         init(bus: AVAudioNodeBus) { self.bus = bus }
+    }
+
+    struct Queued {
+        let item: Item
+        let start: Double
+        let end: Double
+        let frames: AVAudioFramePosition
     }
 
     let engine = AVAudioEngine()
@@ -87,6 +102,35 @@ final class AudioEngine {
         let cur = current
         guard cur.item != nil else { return false }
         if other.item == item && other.startHostTime != nil { return true }
+        if let q = cur.queued { return q.item == item }
+
+        // Gapless: put the next song on the same deck, straight after this one. The player node then plays
+        // the two back to back with no gap at all, sample for sample, which keeps album transitions intact.
+        if overlap == 0, cur.pausedPosition == nil, let curFormat = cur.format {
+            let file = try AVAudioFile(forReading: item.url)
+            let f = file.processingFormat
+            if f.sampleRate == curFormat.sampleRate && f.channelCount == curFormat.channelCount {
+                let remaining = cur.segmentEnd - position(of: cur)
+                guard remaining <= max(lead, 8) else { return false }
+                stopDeck(other)
+                let total = Double(file.length) / f.sampleRate
+                let end = min(item.end ?? total, total)
+                let start = max(0, min(item.start, end - 0.05))
+                let frames = AVAudioFramePosition(max(1, (end - start) * f.sampleRate))
+                let gen = cur.generation
+                let id = item.id
+                cur.node.scheduleSegment(file, startingFrame: AVAudioFramePosition(start * f.sampleRate),
+                                         frameCount: AVAudioFrameCount(frames), at: nil,
+                                         completionCallbackType: .dataPlayedBack) { [weak self, weak cur] _ in
+                    Task { @MainActor in
+                        guard let self, let cur, cur.generation == gen else { return }
+                        self.deckFinished(cur, id: id)
+                    }
+                }
+                cur.queued = Queued(item: item, start: start, end: end, frames: frames)
+                return true
+            }
+        }
         guard let nodeTime = cur.node.lastRenderTime, nodeTime.isHostTimeValid,
               let playerTime = cur.node.playerTime(forNodeTime: nodeTime) else { return false }
         let positionAtRender = cur.segmentStart + Double(max(0, playerTime.sampleTime)) / playerTime.sampleRate
@@ -108,6 +152,15 @@ final class AudioEngine {
         if other.startHostTime != nil || other.item != nil {
             stopDeck(other)
             current.overlapOut = 0
+        }
+        // A song queued on the same deck can't be unscheduled on its own: restart the current song where it is.
+        if current.queued != nil, let item = current.item {
+            let pos = position(of: current)
+            let wasPlaying = current.pausedPosition == nil && current.node.isPlaying
+            stopDeck(current)
+            try? schedule(current, item: item, from: pos)
+            if wasPlaying { current.node.play() } else { current.pausedPosition = pos }
+            applyVolumes()
         }
     }
 
@@ -139,6 +192,7 @@ final class AudioEngine {
 
     func seek(to seconds: Double, playing: Bool) throws {
         guard let item = current.item else { return }
+        current.queued = nil // dropped by the restart below
         cancelNext()
         stopDeck(current)
         try schedule(current, item: item, from: seconds)
@@ -160,7 +214,7 @@ final class AudioEngine {
         if let p = deck.pausedPosition { return p }
         guard let nodeTime = deck.node.lastRenderTime, nodeTime.isSampleTimeValid,
               let playerTime = deck.node.playerTime(forNodeTime: nodeTime) else { return deck.segmentStart }
-        let t = deck.segmentStart + Double(max(0, playerTime.sampleTime)) / playerTime.sampleRate
+        let t = deck.segmentStart + Double(max(0, playerTime.sampleTime - deck.baseSample)) / playerTime.sampleRate
         return min(max(deck.segmentStart, t), deck.segmentEnd)
     }
 
@@ -208,9 +262,13 @@ final class AudioEngine {
         let total = Double(file.length) / rate
         let end = min(item.end ?? total, total)
         let start = max(0, min(position, end - 0.05))
-        // Reconnect at this file's format, so files with different sample rates play correctly.
-        engine.disconnectNodeOutput(deck.node)
-        engine.connect(deck.node, to: mixer, fromBus: 0, toBus: deck.bus, format: format)
+        // Reconnect at this file's format so files with different sample rates play correctly. Only when it
+        // actually changes: rewiring the graph while music plays can cause a tiny dropout.
+        if deck.format == nil || deck.format?.sampleRate != format.sampleRate || deck.format?.channelCount != format.channelCount {
+            engine.disconnectNodeOutput(deck.node)
+            engine.connect(deck.node, to: mixer, fromBus: 0, toBus: deck.bus, format: format)
+            deck.format = format
+        }
         deck.generation += 1
         let gen = deck.generation
         let frames = AVAudioFrameCount(max(0, (end - start) * rate))
@@ -229,9 +287,26 @@ final class AudioEngine {
         deck.segmentEnd = end
         deck.pausedPosition = nil
         deck.startHostTime = nil
+        deck.baseSample = 0
+        deck.currentFrames = AVAudioFramePosition(max(frames, 1))
+        deck.queued = nil
     }
 
     private func deckFinished(_ deck: Deck, id: Int) {
+        guard deck.item?.id == id else { return }
+        // Gapless: the song queued on this deck is already playing. Just move the bookkeeping over.
+        if let q = deck.queued {
+            deck.baseSample += deck.currentFrames
+            deck.currentFrames = q.frames
+            deck.item = q.item
+            deck.segmentStart = q.start
+            deck.segmentEnd = q.end
+            deck.queued = nil
+            deck.overlapIn = 0
+            deck.overlapOut = 0
+            if deck === current { onAdvanced?() }
+            return
+        }
         let wasCurrent = deck === current
         deck.generation += 1
         deck.node.stop()
@@ -253,6 +328,8 @@ final class AudioEngine {
         deck.generation += 1
         deck.node.stop()
         deck.item = nil
+        deck.queued = nil
+        deck.baseSample = 0
         deck.startHostTime = nil
         deck.overlapIn = 0
         deck.overlapOut = 0

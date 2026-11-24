@@ -39,12 +39,42 @@ final class Player {
 
     var current: LibraryEntry? { currentID.flatMap { AppModel.shared.library.entry($0) } }
     var currentSong: Song? { current?.song }
-    var start: Double { current?.trimStart ?? 0 }
+    var start: Double { current.map(playStart) ?? 0 }
     /// Where the song stops: the trim end, else the real length of the downloaded file
     /// (YouTube uploads are often a few seconds longer or shorter than the catalog says).
     var end: Double {
         guard let e = current else { return 0 }
-        return e.trimEnd ?? fileLength(e) ?? e.song.duration
+        return playEnd(e) ?? e.song.duration
+    }
+
+    // MARK: Gapless trimming
+
+    /// Silence measured at the start and end of each file (YouTube uploads often add some).
+    @ObservationIgnored private var silences: [Int: (lead: Double, trail: Double)] = [:]
+
+    private func silence(_ e: LibraryEntry) -> (lead: Double, trail: Double)? {
+        if let s = silences[e.id] { return s }
+        guard let a = AnalysisCache.load(e.id) else { return nil }
+        // Ignore implausible readings (e.g. a very quiet song measured as mostly "silent").
+        let s = (lead: a.leadingSilence < 6 ? a.leadingSilence : 0, trail: a.trailingSilence < 12 ? a.trailingSilence : 0)
+        silences[e.id] = s
+        return s
+    }
+
+    /// Where playback of a song begins: your trim, or with Gapless on, after any silence at the start.
+    private func playStart(_ e: LibraryEntry) -> Double {
+        guard AppModel.shared.prefs.data.gapless, e.trimStart == 0, let s = silence(e) else { return e.trimStart }
+        return s.lead
+    }
+
+    /// Where it stops: your trim, or with Gapless on, before any silence at the end (else the file's end).
+    private func playEnd(_ e: LibraryEntry) -> Double? {
+        if let t = e.trimEnd { return t }
+        guard let length = fileLength(e) else { return nil }
+        if AppModel.shared.prefs.data.gapless, let s = silence(e), s.trail > 0.05 {
+            return max(playStart(e) + 1, length - s.trail)
+        }
+        return length
     }
 
     @ObservationIgnored private var fileLengths: [Int: Double] = [:]
@@ -328,7 +358,7 @@ final class Player {
         if let target = AppModel.shared.prefs.data.normalization.target, let loud = e.loudnessDB {
             gain = Float(min(1, max(0.12, pow(10, (target - loud) / 20))))
         }
-        return AudioEngine.Item(id: e.id, url: e.fileURL, start: e.trimStart, end: e.trimEnd, gain: gain,
+        return AudioEngine.Item(id: e.id, url: e.fileURL, start: playStart(e), end: playEnd(e), gain: gain,
                                 fadeIn: e.fadeIn, fadeOut: e.fadeOut)
     }
 
@@ -336,9 +366,10 @@ final class Player {
         guard let e = current else { stop(); return }
         finishRecord()
         fileLengths[e.id] = nil // the file may have been replaced since last time
+        silences[e.id] = nil
         do {
             try AVAudioSession.sharedInstance().setActive(true)
-            let from = from ?? e.trimStart
+            let from = from ?? playStart(e)
             try engine.load(item(for: e), from: from, play: play)
             position = from
             isPlaying = play
@@ -374,7 +405,7 @@ final class Player {
         finishRecord()
         currentID = consumeNext()
         guard let e = current else { stop(); return }
-        position = e.trimStart
+        position = playStart(e)
         lastTickPosition = nil
         beginRecord(e)
         updateNowPlaying()
@@ -386,7 +417,7 @@ final class Player {
             finishRecord()
             isPlaying = false
             stopTimer()
-            if let e = current { try? engine.load(item(for: e), from: e.trimStart, play: false) }
+            if let e = current { try? engine.load(item(for: e), from: playStart(e), play: false) }
             position = start
             updateNowPlaying()
             return
