@@ -76,7 +76,6 @@ enum Badges {
         BadgeDef(id: "follower", name: "Loyal Fan", icon: "person.2.fill", blurb: "Artists you follow.", unit: "artists", tiers: [5, 25, 100]),
         BadgeDef(id: "digger", name: "Crate Digger", icon: "shippingbox.fill", blurb: "Songs you've imported yourself, from YouTube or files.", unit: "songs", tiers: [1, 10, 50]),
         BadgeDef(id: "mover", name: "Moving In", icon: "arrow.right.arrow.left.circle.fill", blurb: "Songs brought over from Spotify playlists.", unit: "songs", tiers: [25, 100, 500]),
-        BadgeDef(id: "historian", name: "Historian", icon: "books.vertical.fill", blurb: "Plays imported from your Spotify history.", unit: "plays", tiers: [1000, 10000, 50000]),
         BadgeDef(id: "wrapped", name: "Wrapped Up", icon: "gift.fill", blurb: "Times you've watched your Wrapped.", unit: "times", tiers: [1, 5, 20]),
         BadgeDef(id: "sharer", name: "Spread the Word", icon: "square.and.arrow.up.circle.fill", blurb: "Songs you've shared.", unit: "shares", tiers: [1, 10, 50]),
         BadgeDef(id: "dj", name: "DJ", icon: "dial.medium.fill", blurb: "Songs you've added to the queue.", unit: "songs", tiers: [10, 100, 500]),
@@ -96,6 +95,8 @@ enum Badges {
         BadgeDef(id: "noLifelines", name: "No Lifelines", icon: "hand.raised.slash.fill", blurb: "Daily puzzles solved without a lifeline.", unit: "puzzles", tiers: [5, 25, 100]),
         BadgeDef(id: "gameNight", name: "Game Night", icon: "gamecontroller.fill", blurb: "Games played.", unit: "games", tiers: [25, 100, 500]),
         BadgeDef(id: "dailySweep", name: "Daily Sweep", icon: "checkmark.seal.fill", blurb: "Days you solved every daily puzzle.", unit: "days", tiers: [1, 5, 20]),
+        BadgeDef(id: "blitzMaster", name: "Blitz Master", icon: "bolt.fill", blurb: "Your best Song Blitz score in one minute.", unit: "right", tiers: [10, 15, 25]),
+        BadgeDef(id: "lineReader", name: "Line Reader", icon: "quote.bubble.fill", blurb: "Lyric Line rounds with all 5 right.", unit: "rounds", tiers: [1, 10, 30]),
     ]
 
     /// Works out every badge's current value. Runs in a few milliseconds even with big histories.
@@ -144,7 +145,6 @@ enum Badges {
             case "follower": return lib.followed.count
             case "digger": return lib.entries.filter { $0.id < 0 }.count + (counters["filesImported"] ?? 0)
             case "mover": return counters["spotifySongs"] ?? 0
-            case "historian": return spotify
             case "wrapped": return counters["wrappedOpened"] ?? 0
             case "sharer": return counters["shared"] ?? 0
             case "dj": return counters["queued"] ?? 0
@@ -164,6 +164,8 @@ enum Badges {
             case "noLifelines": return counters["noLifelines"] ?? 0
             case "gameNight": return counters["gamesPlayed"] ?? 0
             case "dailySweep": return counters["dailySweep"] ?? 0
+            case "blitzMaster": return counters["blitzBest"] ?? 0
+            case "lineReader": return counters["lineReaderPerfect"] ?? 0
             default: return 0
             }
         }

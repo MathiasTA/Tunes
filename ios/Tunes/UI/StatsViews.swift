@@ -101,7 +101,6 @@ struct StatsView: View {
                     }
                 }
 
-                FunStatsSection(records: recs)
 
                 NavigationLink(value: Route.recaps) {
                     HStack(spacing: 14) {

@@ -36,6 +36,10 @@ struct WrappedData {
     var previousTotal: Double = 0
     var previousPlays = 0
     var previousName = "the period before"
+    /// Albums you played start to finish, and (for All time) your very first song.
+    var albumsDone: [Album] = []
+    var firstSong: StatsStore.SongFact?
+    var firstDate: Date?
 
     var periodName: String {
         if let customName { return customName }
@@ -79,6 +83,11 @@ struct WrappedData {
         averageYear = weight > 0 ? Int((years.reduce(0) { $0 + Double($1.0) * $1.1 } / weight).rounded()) : nil
         oldest = recs.filter { ($0.releaseYear ?? 0) > 1900 && $0.seconds >= 30 }.min { ($0.releaseYear ?? 0) < ($1.releaseYear ?? 0) }
 
+        albumsDone = stats.albumsCompleted(recs, library: AppModel.shared.library)
+        if range == .all && interval == nil, let f = stats.firstSong {
+            firstSong = StatsStore.SongFact(f, value: 0)
+            firstDate = f.start
+        }
         binge = stats.binge(recs)
         rideOrDie = stats.rideOrDie(recs)
         comeback = stats.comeback(recs)
@@ -125,7 +134,7 @@ struct WrappedData {
 // MARK: - Slides
 
 enum WrappedSlide: Int, CaseIterable, Identifiable {
-    case intro, minutes, biggestDay, quiz, topArtist, topSongs, journey, obsessed, genres, discoveries, rideOrDie, clock, personality, comeback, timeMachine, streak, compare, skipped, summary
+    case intro, minutes, whereItBegan, biggestDay, quiz, topArtist, topSongs, journey, obsessed, genres, discoveries, frontToBack, rideOrDie, clock, personality, comeback, timeMachine, streak, compare, skipped, summary
     var id: Int { rawValue }
     var duration: Double { self == .topSongs || self == .summary ? 11 : 8 }
 }
@@ -260,6 +269,9 @@ struct WrappedView: View {
         case .skipped: FactSlide(kicker: "Skipped, sorry", fact: d.skipped, big: { $0.title },
                                  line: { "You skipped it \($0.value) times. It's not the song. Okay, maybe it's the song." })
         case .compare: CompareSlide(data: d)
+        case .whereItBegan: FactSlide(kicker: "Where it began", fact: d.firstSong, big: { $0.title },
+                                      line: { _ in "Your very first song in Tunes\(d.firstDate.map { ", on \($0.formatted(date: .long, time: .omitted))" } ?? ""). Look how far you've come." })
+        case .frontToBack: FrontToBackSlide(data: d)
         case .summary: SummarySlide(data: d) { setPaused(true); showShare = true }
         }
     }
@@ -344,6 +356,7 @@ struct WrappedView: View {
         let d = WrappedData(range: r, stats: app.stats, interval: request?.interval, name: request?.name, previousName: request?.previousName)
         data = d
         var list: [WrappedSlide] = [.intro, .minutes]
+        if d.firstSong != nil { list.append(.whereItBegan) }
         if d.biggest != nil { list.append(.biggestDay) }
         if d.topSongs.count >= 4 { list.append(.quiz) }
         if !d.topArtists.isEmpty { list.append(.topArtist) }
@@ -352,6 +365,7 @@ struct WrappedView: View {
         if d.binge != nil { list.append(.obsessed) }
         if !d.genres.isEmpty { list.append(.genres) }
         if !d.discoveries.isEmpty { list.append(.discoveries) }
+        if !d.albumsDone.isEmpty { list.append(.frontToBack) }
         if d.rideOrDie != nil { list.append(.rideOrDie) }
         if d.total > 0 { list.append(contentsOf: [.clock, .personality]) }
         if d.comeback != nil { list.append(.comeback) }
@@ -414,6 +428,7 @@ struct WrappedView: View {
         take(.timeMachine, [d.oldest?.songID].compactMap { $0 })
         take(.streak, Array(top.dropFirst(2)))
         take(.obsessed, [d.binge?.songID].compactMap { $0 })
+        take(.whereItBegan, [d.firstSong?.songID].compactMap { $0 })
         take(.rideOrDie, [d.rideOrDie?.songID].compactMap { $0 })
         take(.comeback, [d.comeback?.songID].compactMap { $0 })
         take(.skipped, Array(top.dropFirst(3).prefix(6)))
@@ -989,5 +1004,33 @@ private struct CompareSlide: View {
             Image(systemName: "arrow.right").font(.caption.weight(.bold)).opacity(0.6)
             Text("\(now)").font(.title3.weight(.heavy))
         }
+    }
+}
+
+
+/// Albums you played start to finish.
+private struct FrontToBackSlide: View {
+    let data: WrappedData
+
+    var body: some View {
+        let albums = Array(data.albumsDone.prefix(6))
+        VStack(alignment: .leading, spacing: 16) {
+            Spacer()
+            Kicker(text: "Front to back").appear(0.1)
+            Big(text: albums.count == 1 ? "1 album, every song" : "\(data.albumsDone.count) albums, every song", size: 40).appear(0.3)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(Array(albums.enumerated()), id: \.element.id) { i, a in
+                    Artwork(url: a.coverURL, size: 100, seed: a.id)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
+                        .appear(0.5 + Double(i) * 0.12)
+                }
+            }
+            Text(albums.count == 1 ? "You played \(albums[0].title) all the way through." : "You played these all the way through. Proper album listening.")
+                .font(.title3.weight(.semibold)).appear(1.2)
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

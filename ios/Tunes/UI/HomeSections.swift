@@ -230,6 +230,7 @@ struct DiceBlock: View {
         Button(action: roll) {
             HStack(spacing: 16) {
                 Image(systemName: "die.face.\(face).fill")
+                    .contentTransition(.identity)
                     .font(.system(size: 46, weight: .semibold))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(spin))
@@ -271,9 +272,14 @@ struct DiceBlock: View {
             return
         }
         app.haptic(.medium)
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.55)) {
-            spin += 360 * 2
-            face = Int.random(in: 1...6)
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.55)) { spin += 360 * 2 }
+        // Change the face while it's spinning fastest, with no crossfade, so it simply lands on the new number.
+        let next = Int.random(in: 1...6)
+        Task {
+            try? await Task.sleep(for: .seconds(0.15))
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { face = next }
         }
         let rest = pool.filter { $0.id != pick.id }.shuffled().prefix(99)
         app.player.play([pick] + rest, startAt: 0, context: "Roll the dice")
