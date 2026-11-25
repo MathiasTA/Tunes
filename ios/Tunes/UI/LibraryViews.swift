@@ -26,6 +26,8 @@ struct LibraryView: View {
 
             chips.listRowSeparator(.hidden).listRowBackground(Color.clear)
 
+            DuplicatesBanner().listRowSeparator(.hidden).listRowBackground(Color.clear)
+
             if DownloadsBar.isVisible(app.library) {
                 LibraryDownloadCard()
                     .listRowSeparator(.hidden)
@@ -360,5 +362,97 @@ struct AddToPlaylistView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+
+/// "You have 2 versions of 8 songs": shown in Library when you have both the single and album version of songs.
+struct DuplicatesBanner: View {
+    @Environment(AppModel.self) private var app
+    @State private var showing = false
+
+    var body: some View {
+        let groups = SongMatch.groups(app.library)
+        if !groups.isEmpty {
+            Button { showing = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "square.on.square").font(.title3).foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("You have 2 versions of \(groups.count) song\(groups.count == 1 ? "" : "s")").font(.subheadline.weight(.semibold))
+                        Text("Review and keep just the album versions to free up space").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showing) { DuplicatesView().environment(app) }
+        }
+    }
+}
+
+struct DuplicatesView: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirm = false
+
+    var body: some View {
+        let groups = SongMatch.groups(app.library)
+        let extra = groups.reduce(0) { $0 + $1.count - 1 }
+        NavigationStack {
+            List {
+                Section {
+                    Text("These are the same song as a single and on an album. Their plays already count together. Keeping one version frees up space; likes, plays and playlists move to the one you keep.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                ForEach(groups, id: \.first!.id) { g in
+                    Section(g[0].song.title) {
+                        ForEach(Array(g.enumerated()), id: \.element.id) { i, e in
+                            HStack(spacing: 12) {
+                                e.song.artwork(44).clipShape(RoundedRectangle(cornerRadius: 8))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(e.song.album?.recordType?.lowercased() == "single" || e.song.album == nil ? "Single" : (e.song.album?.title ?? "Album"))
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("\(e.song.artistLine) · \(Fmt.time(e.song.duration))").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(i == 0 ? "Keep" : "Remove").font(.caption.weight(.bold))
+                                    .foregroundStyle(i == 0 ? Color.green : Color.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Song versions")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Keep album versions") { confirm = true }.disabled(groups.isEmpty)
+                }
+            }
+            .confirmationDialog("Remove \(extra) extra version\(extra == 1 ? "" : "s")?", isPresented: $confirm, titleVisibility: .visible) {
+                Button("Remove \(extra) download\(extra == 1 ? "" : "s")", role: .destructive) { cleanUp(groups); dismiss() }
+            } message: {
+                Text("The album versions stay. Likes, plays and playlist entries move to them.")
+            }
+        }
+    }
+
+    private func cleanUp(_ groups: [[LibraryEntry]]) {
+        for g in groups {
+            let keep = g[0]
+            let others = Set(g.dropFirst().map(\.id))
+            if !keep.liked, g.dropFirst().contains(where: \.liked) { app.library.toggleLike(keep.song) }
+            for p in app.playlists.playlists where p.songs.contains(where: { others.contains($0.id) }) {
+                app.playlists.update(p.id) { pl in
+                    var seen = Set<Int>()
+                    pl.songs = pl.songs.map { others.contains($0.id) ? keep.song : $0 }.filter { seen.insert($0.id).inserted }
+                }
+            }
+        }
+        app.stats.mergeVersions(app.library)
+        app.library.delete(groups.flatMap { $0.dropFirst().map(\.id) })
+        app.show("Kept the album versions")
     }
 }

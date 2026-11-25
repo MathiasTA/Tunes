@@ -328,7 +328,7 @@ struct PlayRecord: Codable, Identifiable, Hashable {
     enum Origin: String, Codable { case tunes, spotify }
 
     let id: UUID
-    let songID: Int
+    var songID: Int
     let title: String
     let artist: Artist
     /// Featured / linked artists besides the main one. Plays count for them too.

@@ -283,6 +283,7 @@ extension AppModel {
         case .home: if !homePath.isEmpty { homePath.removeLast() }
         case .library: if !libraryPath.isEmpty { libraryPath.removeLast() }
         case .stats: if !statsPath.isEmpty { statsPath.removeLast() }
+        case .games: if !gamesPath.isEmpty { gamesPath.removeLast() }
         }
     }
 }

@@ -310,22 +310,28 @@ struct RankRace: View {
     @Environment(\.look) private var look
     @State private var highlighted: Int?
     @State private var data: [(id: Int, title: String, points: [(Date, Int)])] = []
+    @State private var span = ""
+    @State private var tooShort = false
 
     static let colors: [Color] = [.pink, .orange, .yellow, .green, .teal, .cyan, .blue, .indigo, .purple, .red]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Your top 10 songs over the last 16 weeks. Tap a song to follow it.").font(.footnote).foregroundStyle(.secondary)
-            if data.isEmpty {
-                Text("Not enough listening yet.").foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 40)
+            Text("Your top 10 songs \(span). Tap a song to follow it.").font(.footnote).foregroundStyle(.secondary)
+            if tooShort || data.isEmpty {
+                Text("The race starts after a couple of days of listening.").foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 40)
             } else {
                 Chart {
                     ForEach(Array(data.enumerated()), id: \.element.id) { i, s in
                         ForEach(s.points, id: \.0) { p in
-                            LineMark(x: .value("Week", p.0), y: .value("Rank", p.1), series: .value("Song", "\(s.id)"))
+                            LineMark(x: .value("Day", p.0), y: .value("Rank", p.1), series: .value("Song", "\(s.id)"))
                                 .foregroundStyle(Self.colors[i % Self.colors.count])
                                 .lineStyle(StrokeStyle(lineWidth: highlighted == s.id ? 4 : 2.2, lineCap: .round))
-                                .interpolationMethod(.catmullRom)
+                                .interpolationMethod(.monotone)
+                                .opacity(highlighted == nil || highlighted == s.id ? 1 : 0.15)
+                            PointMark(x: .value("Day", p.0), y: .value("Rank", p.1))
+                                .foregroundStyle(Self.colors[i % Self.colors.count])
+                                .symbolSize(highlighted == s.id ? 50 : 22)
                                 .opacity(highlighted == nil || highlighted == s.id ? 1 : 0.15)
                         }
                     }
@@ -359,16 +365,26 @@ struct RankRace: View {
     private func build() {
         let stats = app.stats
         let now = Date.now
-        let weeks = 16
-        guard let start = Calendar.current.date(byAdding: .weekOfYear, value: -weeks, to: now) else { return }
+        guard let first = stats.records.first?.start else { tooShort = true; return }
+        let history = now.timeIntervalSince(first)
+        guard history >= 2 * 86_400 else { tooShort = true; return }
+        // Fit the race to your history: daily checks for the first 16 weeks, weekly after that.
+        let daily = history < 16 * 7 * 86_400
+        let step: TimeInterval = daily ? 86_400 : 7 * 86_400
+        let start = daily ? first : now.addingTimeInterval(-16 * 7 * 86_400)
+        let days = Int(now.timeIntervalSince(start) / 86_400)
+        span = daily ? "over the last \(max(2, days)) days" : "over the last 16 weeks"
         let top = Array(stats.ranking(stats.playCounts(from: start, to: now)).prefix(10))
         var series: [Int: [(Date, Int)]] = [:]
-        for w in 0...weeks {
-            guard let t = Calendar.current.date(byAdding: .weekOfYear, value: w - weeks, to: now) else { continue }
-            let ranks = stats.ranking(stats.playCounts(from: t.addingTimeInterval(-28 * 86_400), to: t))
+        var t = start.addingTimeInterval(step)
+        while t <= now.addingTimeInterval(step - 1) {
+            let at = min(t, now)
+            let window = min(28 * 86_400, at.timeIntervalSince(first))
+            let ranks = stats.ranking(stats.playCounts(from: at.addingTimeInterval(-window), to: at))
             for id in top {
-                if let r = ranks.firstIndex(of: id), r < 20 { series[id, default: []].append((t, r + 1)) }
+                if let r = ranks.firstIndex(of: id), r < 20 { series[id, default: []].append((at, r + 1)) }
             }
+            t = t.addingTimeInterval(step)
         }
         data = top.compactMap { id in
             guard let pts = series[id], !pts.isEmpty else { return nil }

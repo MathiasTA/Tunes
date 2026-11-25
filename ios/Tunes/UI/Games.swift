@@ -1,3 +1,4 @@
+import AudioToolbox
 import AVFoundation
 import SwiftUI
 
@@ -68,6 +69,22 @@ enum GameKind: String, CaseIterable, Identifiable {
     }
 
     var index: UInt64 { UInt64(GameKind.allCases.firstIndex(of: self) ?? 0) }
+
+    /// Rows of the result distribution in the game's stats, and what they mean.
+    var distribution: (title: String, rows: [String])? {
+        switch self {
+        case .tunedle: ("Guesses", ["1", "2", "3", "4", "5", "6", "X"])
+        case .earworm: ("Clip length", ["1s", "2s", "4s", "7s", "11s", "16s", "X"])
+        case .detective: ("Guesses", ["1", "2", "3", "4", "5", "6–9", "10+"])
+        case .connections: ("Mistakes", ["0", "1", "2", "3", "X"])
+        case .higherLower: ("Run", ["0–2", "3–5", "6–9", "10–19", "20+"])
+        case .coverStory: ("Tries", ["1", "2", "3", "X"])
+        case .finishLyric: ("Right", ["3/3", "2/3", "1/3", "0/3"])
+        case .lyricLine: ("Right", ["5/5", "4/5", "3/5", "2/5", "0–1"])
+        case .timeline: ("Solved", ["1st check", "2nd check", "X"])
+        case .blitz: ("Score", ["0–4", "5–9", "10–14", "15–19", "20+"])
+        }
+    }
 }
 
 /// The songs the games are built from.
@@ -82,7 +99,9 @@ struct GameData {
     let followed: [Artist]
 
     init(_ app: AppModel) {
-        let entries = app.library.entries
+        // One entry per song: the album version stands in for its single version.
+        let canon = SongMatch.canonical(app.library)
+        let entries = app.library.entries.filter { (canon[$0.id] ?? $0.id) == $0.id }
         songs = entries.map(\.song)
         var p: [Int: Int] = [:]
         for r in app.stats.records where r.seconds >= StatsStore.playThreshold { p[r.songID, default: 0] += 1 }
@@ -145,6 +164,8 @@ struct GameResult {
     /// Badge counters to add one to, and best-ever values to keep.
     var counts: [String] = []
     var bests: [String: Int] = [:]
+    /// Where this result lands in the game's distribution (e.g. "3" guesses, "X" for a loss).
+    var bucket: String?
 }
 
 // MARK: - Hub
@@ -218,12 +239,136 @@ struct GamesSection: View {
     }
 }
 
-/// The games on their own page (reachable as a route).
+/// The Games tab: streak banner, today's games, your stats per game and your game badges.
 struct GamesHubView: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+    @State private var statsFor: GameKind?
+
+    static let badgeIDs = ["puzzler", "wordWizard", "perfectPitch", "connected", "higherGround", "eagleEye", "lyricLegend",
+                           "timekeeper", "sherlock", "noLifelines", "gameNight", "dailySweep", "blitzMaster", "lineReader"]
+
     var body: some View {
-        ScrollView { GamesSection().padding(16) }
-            .themeBackground()
-            .navigationTitle("Games")
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    GamesSection().id("top")
+                    if app.library.entries.count >= GameData.minimumSongs { statsList }
+                    badges
+                }
+                .padding(16)
+            }
+            .onChange(of: app.gamesReselect) { _, _ in withAnimation { proxy.scrollTo("top", anchor: .top) } }
+        }
+        .themeBackground()
+        .navigationTitle("Games")
+        .sheet(item: $statsFor) { k in GameStatsView(kind: k).environment(app).presentationDetents([.medium, .large]) }
+    }
+
+    private var statsList: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Your game stats").font(.title3.bold())
+            VStack(spacing: 0) {
+                ForEach(GameKind.allCases) { k in
+                    let r = app.prefs.data.games[k.rawValue] ?? GameRecord()
+                    Button { statsFor = k } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: k.icon).foregroundStyle(k.colors[0]).frame(width: 28)
+                            Text(k.title).foregroundStyle(.primary)
+                            Spacer()
+                            Text("\(r.total ?? 0) played").font(.caption).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 11)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .background(Surface.card(look), in: RoundedRectangle(cornerRadius: look.radius(16)))
+        }
+    }
+
+    private var badges: some View {
+        let all = Badges.evaluate().filter { Self.badgeIDs.contains($0.def.id) }
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Game badges").font(.title3.bold())
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 14) {
+                ForEach(all) { b in
+                    NavigationLink(value: Route.badges) {
+                        VStack(spacing: 6) {
+                            MedalView(icon: b.def.icon, tier: b.tier, size: 56, progress: b.progressToNext)
+                            Text(b.def.name).font(.caption2.weight(.semibold)).foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.7)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+/// One game's stats: played, wins, streaks and how your results are spread.
+struct GameStatsView: View {
+    let kind: GameKind
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let r = app.prefs.data.games[kind.rawValue] ?? GameRecord()
+        let total = r.total ?? 0
+        let wins = r.totalWon ?? 0
+        let dist = r.dist ?? [:]
+        let most = max(1, dist.values.max() ?? 1)
+        VStack(alignment: .leading, spacing: 18) {
+            Label(kind.title, systemImage: kind.icon).font(.title2.weight(.heavy)).foregroundStyle(kind.colors[0])
+            HStack(spacing: 10) {
+                stat("Played", "\(total)")
+                stat("Win %", total > 0 ? "\(Int((Double(wins) / Double(total) * 100).rounded()))" : "–")
+                stat("Streak", "\(r.streak)")
+                stat("Best", "\(r.bestStreak)")
+            }
+            if let d = kind.distribution {
+                Text(d.title).font(.headline)
+                VStack(spacing: 6) {
+                    ForEach(d.rows, id: \.self) { row in
+                        let n = dist[row] ?? 0
+                        HStack(spacing: 8) {
+                            Text(row).font(.caption.weight(.bold).monospacedDigit()).frame(width: 64, alignment: .leading)
+                            GeometryReader { g in
+                                RoundedRectangle(cornerRadius: 4).fill(n > 0 ? kind.colors[0] : Color.secondary.opacity(0.25))
+                                    .frame(width: max(24, g.size.width * CGFloat(n) / CGFloat(most)))
+                                    .overlay(alignment: .trailing) {
+                                        Text("\(n)").font(.caption2.weight(.heavy)).foregroundStyle(.white).padding(.trailing, 6)
+                                    }
+                            }
+                            .frame(height: 20)
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+    }
+
+    private func stat(_ label: String, _ value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.title2.weight(.heavy)).monospacedDigit()
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// The "Today's games" Home block: your streak and what's left, tapping opens the Games tab.
+struct TodaysGamesCard: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        Button { app.tab = .games } label: {
+            DailyStreakBanner(open: nil).contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
     }
 }
 
@@ -240,6 +385,7 @@ struct GameScreen: View {
     @State private var round = 0
     @State private var result: GameResult?
     @State private var data: GameData?
+    @State private var showStats = false
 
     private var today: String { AppModel.dayKey() }
     private var record: GameRecord { app.prefs.data.games[kind.rawValue] ?? GameRecord() }
@@ -271,13 +417,16 @@ struct GameScreen: View {
             .padding(.horizontal, 18)
             .padding(.top, 8)
             if let result {
-                ResultCard(kind: kind, result: result, daily: daily, streak: record.streak, next: playAnother, close: { dismiss() })
+                ResultCard(kind: kind, result: result, daily: daily, streak: record.streak, next: playAnother, close: { dismiss() },
+                           keepListening: { GameAudio.shared.handOff(); dismiss() })
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: result != nil)
+        .sheet(isPresented: $showStats) { GameStatsView(kind: kind).environment(app).presentationDetents([.medium, .large]) }
+        .onDisappear { GameAudio.shared.stop() }
         .onAppear {
             data = GameData(app)
             seed = dailySeed
@@ -300,7 +449,12 @@ struct GameScreen: View {
             if record.streak > 0 {
                 Label("\(record.streak)", systemImage: "flame.fill").font(.subheadline.weight(.heavy)).foregroundStyle(.orange)
             }
+            Button { showStats = true } label: {
+                Image(systemName: "chart.bar.fill").font(.subheadline).frame(width: 32, height: 32).background(.white.opacity(0.14), in: Circle())
+            }
+            .accessibilityLabel("\(kind.title) stats")
             Button(daily ? "Practice" : "Daily") {
+                GameAudio.shared.stop()
                 withAnimation {
                     daily.toggle()
                     reviewing = false
@@ -373,11 +527,20 @@ struct GameScreen: View {
 
     private func finish(_ r: GameResult) {
         guard !reviewing else { return }
-        app.haptic(r.won ? .success : .warning)
+        if r.won { GameFX.win() } else { GameFX.wrong() }
+        // Any round within 24 hours of a broken streak saves it.
+        if app.rescueAvailable { app.useRescue() }
+        var stats = record
+        stats.total = (stats.total ?? 0) + 1
+        if r.won { stats.totalWon = (stats.totalWon ?? 0) + 1 }
+        if let b = r.bucket { stats.dist = (stats.dist ?? [:]).merging([b: 1], uniquingKeysWith: +) }
+        app.prefs.data.games[kind.rawValue] = stats
         if daily && !finishedToday {
             var rec = record
             let yesterday = AppModel.dayKey(Calendar.current.date(byAdding: .day, value: -1, to: .now) ?? .now)
-            rec.finishDaily(won: r.won, today: today, yesterday: yesterday)
+            let before = AppModel.dayKey(Calendar.current.date(byAdding: .day, value: -2, to: .now) ?? .now)
+            let saved = rec.lastDaily == before && app.prefs.data.counters["rescue:\(yesterday)"] != nil
+            rec.finishDaily(won: r.won, today: today, yesterday: saved ? before : yesterday)
             rec.lastHeadline = r.headline
             rec.lastDetail = r.detail
             app.prefs.data.games[kind.rawValue] = rec
@@ -401,6 +564,7 @@ struct GameScreen: View {
     }
 
     private func playAnother() {
+        GameAudio.shared.stop()
         withAnimation {
             daily = false
             reviewing = false
@@ -419,9 +583,22 @@ private struct ResultCard: View {
     let streak: Int
     let next: () -> Void
     let close: () -> Void
+    let keepListening: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
+            if let s = GameAudio.shared.song {
+                Button(action: keepListening) {
+                    HStack(spacing: 8) {
+                        Image(systemName: GameAudio.shared.playing ? "speaker.wave.2.fill" : "speaker.fill")
+                            .symbolEffect(.variableColor.iterative, isActive: GameAudio.shared.playing)
+                        Text("Exit and keep listening to \(s.title)").lineLimit(1)
+                    }
+                    .font(.subheadline.weight(.bold)).frame(maxWidth: .infinity).frame(height: 44)
+                    .background(.white.opacity(0.14), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+            }
             HStack(spacing: 12) {
                 Image(systemName: result.won ? "star.circle.fill" : "music.note").font(.system(size: 40)).foregroundStyle(kind.colors[0])
                 VStack(alignment: .leading, spacing: 2) {
@@ -756,7 +933,7 @@ private struct TunedleGame: View {
 
     private func key(_ label: String, wide: Bool = false, color: Color? = nil, action: @escaping () -> Void) -> some View {
         Button {
-            AppModel.shared.haptic(.light)
+            GameFX.tap()
             action()
         } label: {
             Text(label).font(.system(size: wide ? 13 : 17, weight: .bold))
@@ -775,12 +952,12 @@ private struct TunedleGame: View {
     private func submit(_ word: String) {
         guard current.count == letters(word).count else {
             withAnimation(.default) { shake += 1 }
-            AppModel.shared.haptic(.warning)
+            GameFX.wrong()
             return
         }
         guard valid.contains(current) else {
             withAnimation(.default) { shake += 1; warning = "Not one of your songs" }
-            AppModel.shared.haptic(.warning)
+            GameFX.wrong()
             return
         }
         let g = current
@@ -800,9 +977,10 @@ private struct TunedleGame: View {
             let ms = marks(gg, t.word)
             return ms.allSatisfy { $0 == .hit } ? Color(hex: "#22C55E") : (ms.contains { $0 != .miss } ? Color(hex: "#EAB308") : Color(white: 0.3))
         }
+        GameAudio.shared.play(t.song)
         io.done(GameResult(won: won, headline: won ? "Got it in \(guesses.count)!" : "So close",
                            detail: won ? "You know your library." : "It was \(t.song.title).", marks: squares, song: t.song,
-                           counts: won ? ["tunedleWins"] : []))
+                           counts: won ? ["tunedleWins"] : [], bucket: won ? "\(guesses.count)" : "X"))
     }
 }
 
@@ -925,7 +1103,7 @@ private struct ConnectionsGame: View {
     private func tile(_ s: Song) -> some View {
         let on = picked.contains(s.id)
         return Button {
-            AppModel.shared.haptic(.selection)
+            GameFX.tap()
             withAnimation(.spring(response: 0.25)) {
                 if on { picked.remove(s.id) } else if picked.count < 4 { picked.insert(s.id) }
             }
@@ -1030,7 +1208,7 @@ private struct ConnectionsGame: View {
         guard ids.count == 4 else { return }
         let remaining = groups.filter { g in !solved.contains { $0.id == g.id } }
         if let g = remaining.first(where: { Set($0.songs.map(\.id)) == ids }) {
-            if live { AppModel.shared.haptic(.success) }
+            if live { GameFX.right() }
             history.append(g.color)
             withAnimation(live ? .spring(response: 0.45, dampingFraction: 0.8) : nil) {
                 solved.append(g)
@@ -1041,20 +1219,25 @@ private struct ConnectionsGame: View {
             if solved.count == 4 {
                 over = true
                 if live {
+                    if let g = groups.last, let song = g.songs.first { GameAudio.shared.play(song) }
                     io.done(GameResult(won: true, headline: mistakes == 0 ? "Perfect!" : "All four groups!",
                                        detail: mistakes == 0 ? "Not a single mistake." : "With \(mistakes) mistake\(mistakes == 1 ? "" : "s").",
-                                       marks: history, counts: mistakes == 0 ? ["connectionsPerfect"] : []))
+                                       marks: history, counts: mistakes == 0 ? ["connectionsPerfect"] : [], bucket: "\(mistakes)"))
                 }
             }
         } else {
             let close = remaining.contains { Set($0.songs.map(\.id)).intersection(ids).count == 3 }
-            if live { AppModel.shared.haptic(.warning) }
+            if live { GameFX.wrong() }
             history.append(Color(white: 0.3))
             withAnimation(live ? .default : nil) { shake += 1; mistakes += 1; toast = close ? "One away…" : nil; picked = [] }
             if mistakes >= 4 {
                 over = true
                 withAnimation(live ? .spring : nil) { solved = groups; tiles = [] }
-                if live { io.done(GameResult(won: false, headline: "Out of mistakes", detail: "Here's how the groups went together.", marks: history)) }
+                if live {
+                    let hardest = solved.filter { s in groups.contains { $0.id == s.id } }.max { $0.id < $1.id } ?? groups.last
+                    if let song = hardest?.songs.first { GameAudio.shared.play(song) }
+                    io.done(GameResult(won: false, headline: "Out of mistakes", detail: "Here's how the groups went together.", marks: history, bucket: "X"))
+                }
             }
         }
     }
@@ -1082,9 +1265,10 @@ private struct EarwormGame: View {
                 VStack(spacing: 14) {
                     clipBar
                     Button(action: play) {
-                        Image(systemName: over ? (playing ? "pause.fill" : "play.fill") : (playing ? "waveform" : "play.fill"))
+                        Image(systemName: over ? (GameAudio.shared.playing ? "pause.fill" : "play.fill") : (playing ? "waveform" : "play.fill"))
                             .font(.system(size: 34, weight: .bold))
                             .symbolEffect(.variableColor.iterative, isActive: playing && !over)
+                            .contentTransition(.identity)
                             .frame(width: 90, height: 90)
                             .background(GameKind.earworm.colors[0], in: Circle())
                     }
@@ -1097,10 +1281,11 @@ private struct EarwormGame: View {
                     if over {
                         HStack(spacing: 10) {
                             target.artwork(50).clipShape(RoundedRectangle(cornerRadius: 8))
-                            VStack(alignment: .leading) {
-                                Text(target.title).font(.headline)
-                                Text(target.artistLine).font(.caption).opacity(0.7)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(target.title).font(.headline).lineLimit(1)
+                                Text(target.artistLine).font(.caption).opacity(0.7).lineLimit(1)
                             }
+                            .fixedSize(horizontal: false, vertical: true)
                             Spacer()
                         }
                         .padding(12).background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
@@ -1149,8 +1334,7 @@ private struct EarwormGame: View {
     private func play() {
         if over {
             // After the round: play or pause the whole song.
-            guard let p = player else { return }
-            if p.isPlaying { p.pause(); playing = false } else { p.play(); playing = true }
+            GameAudio.shared.toggle()
             return
         }
         guard let p = player, !playing else { return }
@@ -1179,7 +1363,7 @@ private struct EarwormGame: View {
         if m.hasPrefix("G:"), let id = Int(m.dropFirst(2)) {
             if id == t.id { finish(won: true, live: live); return }
             if let s = data.songs.first(where: { $0.id == id }) { withAnimation(live ? .default : nil) { wrong.append(s) } }
-            if live { AppModel.shared.haptic(.warning) }
+            if live { GameFX.wrong() }
         }
         if step < clips.count - 1 { withAnimation(live ? .default : nil) { step += 1 } } else { finish(won: false, live: live) }
     }
@@ -1191,18 +1375,14 @@ private struct EarwormGame: View {
         playing = false
         guard live else { return }
         // Play the song from where the clip started, and let it keep going.
-        if let p = player {
-            p.currentTime = min(start, max(0, p.duration - 17))
-            p.play()
-            playing = true
-            progress = 1
-        }
+        GameAudio.shared.play(t, from: start)
+        progress = 1
         let marks = (0..<clips.count).map { i -> Color in
             i < step ? Color(white: 0.3) : (i == step ? (won ? Color(hex: "#22C55E") : Color(white: 0.3)) : Color.white.opacity(0.12))
         }
         io.done(GameResult(won: won, headline: won ? "Got it in \(Int(clips[step]))s!" : "It was…",
                            detail: won ? "Your ears know your music." : "Better luck next time.", marks: marks, song: t,
-                           counts: won && step == 0 ? ["earwormOneSecond"] : []))
+                           counts: won && step == 0 ? ["earwormOneSecond"] : [], bucket: won ? "\(Int(clips[step]))s" : "X"))
     }
 }
 
@@ -1304,14 +1484,16 @@ private struct DetectiveGame: View {
         guard let t = target, !over, let s = data.songs.first(where: { $0.id == id }) else { return }
         withAnimation(live ? .spring(response: 0.4) : nil) { guesses.append(s) }
         guard id == t.id else {
-            if live { AppModel.shared.haptic(.light) }
+            if live { GameFX.wrong() }
             return
         }
         over = true
         guard live else { return }
+        GameAudio.shared.play(t)
+        let n = guesses.count
         io.done(GameResult(won: true, headline: "Solved in \(guesses.count)!", detail: guesses.count <= 3 ? "Sharp detective work." : "Case closed.",
                            marks: guesses.map { $0.id == t.id ? Color(hex: "#22C55E") : Color(white: 0.3) }, song: t,
-                           counts: guesses.count <= 3 ? ["detectiveQuick"] : []))
+                           counts: guesses.count <= 3 ? ["detectiveQuick"] : [], bucket: n >= 10 ? "10+" : (n >= 6 ? "6–9" : "\(n)")))
     }
 }
 
@@ -1410,6 +1592,13 @@ private struct HigherLowerGame: View {
         deck = more(&rng, limit: endless ? 400 : goal + 1)
         guard deck.count >= 2 else { deck = []; return }
         for m in io.moves { apply(m, live: false) }
+        if !over && !io.readOnly { playMystery() }
+    }
+
+    /// The song you're guessing about plays softly, fading in slowly.
+    private func playMystery() {
+        guard deck.count > i + 1 else { return }
+        GameAudio.shared.play(deck[i + 1], fadeIn: 4, volume: 0.6)
     }
 
     /// More songs for the deck, never two with the same play count back to back.
@@ -1449,15 +1638,18 @@ private struct HigherLowerGame: View {
         lastRight = right
         withAnimation(.spring) { revealed = true }
         withAnimation(.easeOut(duration: 0.8)) { shownCount = b }
-        AppModel.shared.haptic(right ? .success : .warning)
+        if right { GameFX.right() } else { GameFX.wrong() }
         if end { over = true }
         Task {
             try? await Task.sleep(for: .seconds(1.3))
             if end {
                 let won = endless ? score >= 5 : score >= min(goal, deck.count - 1) / 2
+                GameAudio.shared.fadeOut(2)
+                let run = score
                 io.done(GameResult(won: won, headline: "\(score) in a row", detail: right ? "You went the distance." : "It had \(b) plays.",
-                                   marks: (0..<score).map { _ in Color(hex: "#22C55E") } + (right ? [] : [Color(white: 0.3)]),
-                                   bests: ["higherLowerBest": score]))
+                                   marks: (0..<min(score, 20)).map { _ in Color(hex: "#22C55E") } + (right ? [] : [Color(white: 0.3)]),
+                                   bests: ["higherLowerBest": score],
+                                   bucket: run >= 20 ? "20+" : (run >= 10 ? "10–19" : (run >= 6 ? "6–9" : (run >= 3 ? "3–5" : "0–2")))))
             } else {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                     i += 1
@@ -1465,6 +1657,7 @@ private struct HigherLowerGame: View {
                     shownCount = 0
                     lastRight = nil
                 }
+                playMystery()
             }
         }
     }
@@ -1585,6 +1778,13 @@ private struct CoverStoryGame: View {
         apply(m, live: true)
     }
 
+    /// The song to play for the answer: the single itself, or the album's most-played song.
+    private func answerSong(_ a: Choice) -> Song {
+        guard albums else { return a.cover }
+        let tracks = data.songs.filter { $0.album?.id == a.id }
+        return tracks.max { (data.plays[$0.id] ?? 0) < (data.plays[$1.id] ?? 0) } ?? a.cover
+    }
+
     private func apply(_ m: String, live: Bool) {
         guard let a = answer, !over else { return }
         if m == "L" {
@@ -1601,15 +1801,20 @@ private struct CoverStoryGame: View {
             withAnimation(live ? .default : nil) { step = zooms.count - 1 }
             guard live else { return }
             let marks = (0..<zooms.count).map { $0 < out.count ? Color(white: 0.3) : ($0 == out.count ? Color(hex: "#22C55E") : Color.white.opacity(0.12)) }
+            GameAudio.shared.play(answerSong(a))
             io.done(GameResult(won: true, headline: out.isEmpty ? "First try!" : "Got it!", detail: "You'd know that cover anywhere.",
-                               marks: marks, song: albums ? nil : a.cover, usedLifeline: lifeline, counts: out.isEmpty ? ["coverFirstTry"] : []))
+                               marks: marks, song: albums ? nil : a.cover, usedLifeline: lifeline, counts: out.isEmpty ? ["coverFirstTry"] : [],
+                               bucket: "\(min(out.count + 1, 3))"))
         } else {
-            if live { AppModel.shared.haptic(.warning) }
+            if live { GameFX.wrong() }
             withAnimation(live ? .default : nil) { out.insert(id); step = min(zooms.count - 1, step + 1) }
             let left = choices.filter { !out.contains($0.id) && !removed.contains($0.id) }
             if left.count <= 1 {
                 over = true
-                if live { io.done(GameResult(won: false, headline: "It was \(a.title)", detail: "Covers can be tricky up close.", usedLifeline: lifeline)) }
+                if live {
+                    GameAudio.shared.play(answerSong(a))
+                    io.done(GameResult(won: false, headline: "It was \(a.title)", detail: "Covers can be tricky up close.", usedLifeline: lifeline, bucket: "X"))
+                }
             }
         }
     }
@@ -1628,6 +1833,9 @@ private struct LyricGame: View {
         let line: String
         let answer: String
         let choices: [String]
+        /// When the line is sung, and when the next one starts (synced lyrics only).
+        var time: Double?
+        var end: Double?
     }
 
     @State private var questions: [Question] = []
@@ -1687,8 +1895,14 @@ private struct LyricGame: View {
                     .disabled(picked[q.id] != nil || over || io.readOnly)
                 }
             }
-            LifelineButton(title: "Ask the Audience", icon: "person.3.fill", used: audienceFor != nil || over || io.readOnly || picked[q.id] != nil) {
-                act("L:\(q.id)")
+            if picked[q.id] != nil, q.time != nil {
+                Button { _ = LyricMoment.hear(q.song, time: q.time, end: q.end, last: false) } label: {
+                    Label("Hear it again", systemImage: "speaker.wave.2.fill").font(.subheadline.weight(.bold))
+                }
+            } else {
+                LifelineButton(title: "Ask the Audience", icon: "person.3.fill", used: audienceFor != nil || over || io.readOnly || picked[q.id] != nil) {
+                    act("L:\(q.id)")
+                }
             }
         }
         .id(q.id)
@@ -1714,7 +1928,8 @@ private struct LyricGame: View {
 
     /// Questions from a song's lyrics (up to `max`).
     private static func makeQuestions(_ lyr: Lyrics, song: Song, max: Int, rng: inout SeededRNG) -> [Question] {
-        let lines = lyr.lines.map { $0.text.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let kept = lyr.lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+        let lines = kept.map { $0.text.trimmingCharacters(in: .whitespaces) }
         let good = lines.indices.filter { i in
             let w = lines[i].split(separator: " ")
             return w.count >= 4 && lines[i].count <= 80 && w.contains { clean($0).count >= 4 }
@@ -1734,7 +1949,8 @@ private struct LyricGame: View {
             let wrong: [String] = pool.shuffled(using: &rng).prefix(3).map { w in capital ? w.prefix(1).uppercased() + w.dropFirst() : w }
             guard wrong.count == 3 else { continue }
             out.append(Question(id: 0, song: song, before: li > 0 ? lines[li - 1] : nil, line: line, answer: answer,
-                                choices: ([answer] + wrong).shuffled(using: &rng)))
+                                choices: ([answer] + wrong).shuffled(using: &rng),
+                                time: kept[li].time, end: li + 1 < kept.count ? kept[li + 1].time : nil))
         }
         return out
     }
@@ -1768,7 +1984,7 @@ private struct LyricGame: View {
             }
         }
         questions = Array(out.prefix(3)).enumerated().map { i, q in
-            Question(id: i, song: q.song, before: q.before, line: q.line, answer: q.answer, choices: q.choices)
+            Question(id: i, song: q.song, before: q.before, line: q.line, answer: q.answer, choices: q.choices, time: q.time, end: q.end)
         }
         loading = false
         for m in io.moves { apply(m, live: false) }
@@ -1822,21 +2038,26 @@ private struct LyricGame: View {
         withAnimation(live ? .spring(response: 0.3) : nil) { picked[qid] = c }
         if right { score += 1 }
         marks.append(right ? Color(hex: "#22C55E") : Color(white: 0.3))
-        if live { AppModel.shared.haptic(right ? .success : .warning) }
+        if live { if right { GameFX.right() } else { GameFX.wrong() } }
         let last = qid >= 2
         if last { over = true }
         guard live else {
             if !last { index = qid + 1 }
             return
         }
+        let wait = LyricMoment.hear(q.song, time: q.time, end: q.end, last: last)
         Task {
-            try? await Task.sleep(for: .seconds(1.2))
+            try? await Task.sleep(for: .seconds(wait))
+            if !last {
+                GameAudio.shared.fadeOut(0.8)
+                try? await Task.sleep(for: .seconds(0.8))
+            }
             if last {
                 // A line answered with the audience's help doesn't count as word perfect.
                 let perfect = score == 3 && audienceFor == nil
                 io.done(GameResult(won: score >= 2, headline: "\(score) of 3",
                                    detail: perfect ? "Word perfect." : (score >= 2 ? "You know the words." : "Time to sing along more."),
-                                   marks: marks, usedLifeline: audienceFor != nil, counts: perfect ? ["lyricPerfect"] : []))
+                                   marks: marks, usedLifeline: audienceFor != nil, counts: perfect ? ["lyricPerfect"] : [], bucket: "\(score)/3"))
             } else {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index = qid + 1 }
             }
@@ -1929,11 +2150,11 @@ private struct TimelineGame: View {
         let right = correct
         return List {
             ForEach(Array(order.enumerated()), id: \.element.id) { i, s in
-                HStack(spacing: 12) {
-                    s.artwork(46).clipShape(RoundedRectangle(cornerRadius: 8))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.title).font(.subheadline.weight(.bold)).lineLimit(1)
-                        Text(s.artistLine).font(.caption).opacity(0.7).lineLimit(1)
+                HStack(spacing: 14) {
+                    s.artwork(56).clipShape(RoundedRectangle(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(s.title).font(.headline).lineLimit(1)
+                        Text(s.artistLine).font(.subheadline).opacity(0.7).lineLimit(1)
                     }
                     Spacer()
                     if checked {
@@ -1941,6 +2162,8 @@ private struct TimelineGame: View {
                             .foregroundStyle(right[i].id == s.id ? Color.green : Color.red)
                     }
                 }
+                .frame(height: 70)
+                .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
                 .listRowBackground(checked ? (right[i].id == s.id ? Color.green.opacity(0.25) : Color.red.opacity(0.2)) : Color.white.opacity(0.08))
                 .foregroundStyle(.white)
             }
@@ -1948,14 +2171,15 @@ private struct TimelineGame: View {
                 guard !over && !io.readOnly else { return }
                 order.move(fromOffsets: from, toOffset: to)
                 checked = false
-                AppModel.shared.haptic(.selection)
+                GameFX.tap()
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .environment(\.editMode, .constant(over || io.readOnly ? .inactive : .active))
         .scrollDisabled(true)
-        .frame(height: 5 * 66)
+        .environment(\.defaultMinListRowHeight, 84)
+        .frame(height: 5 * 84 + 6)
     }
 
     private func setup() {
@@ -2003,17 +2227,18 @@ private struct TimelineGame: View {
         let right = zip(order, correct).filter { $0.0.id == $0.1.id }.count
         if right == 5 || tries >= 2 { over = true }
         guard live else { return }
+        if over, let pick = order.randomElement() { GameAudio.shared.play(pick) }
         if right == 5 {
             io.done(GameResult(won: true, headline: tries == 1 ? "Perfect order!" : "Sorted!", detail: "You know your music history.",
                                marks: Array(repeating: Color(hex: "#22C55E"), count: 5), usedLifeline: call != nil,
-                               counts: tries == 1 ? ["timelineFirstCheck"] : []))
+                               counts: tries == 1 ? ["timelineFirstCheck"] : [], bucket: tries == 1 ? "1st check" : "2nd check"))
         } else if tries >= 2 {
-            AppModel.shared.haptic(.warning)
+            GameFX.wrong()
             io.done(GameResult(won: false, headline: "\(right) of 5 in place", detail: "The years are shown next to each song.",
                                marks: zip(order, correct).map { $0.0.id == $0.1.id ? Color(hex: "#22C55E") : Color(white: 0.3) },
-                               usedLifeline: call != nil))
+                               usedLifeline: call != nil, bucket: "X"))
         } else {
-            AppModel.shared.haptic(.warning)
+            GameFX.wrong()
         }
     }
 }
@@ -2137,7 +2362,11 @@ struct DailyStreakBanner: View {
         func run(from start: Int) -> Int {
             var n = 0
             var d = start
-            while counters["allDone:\(key(d))"] != nil { n += 1; d += 1 }
+            // Saved days keep the streak going but don't add to it.
+            while counters["allDone:\(key(d))"] != nil || counters["rescue:\(key(d))"] != nil {
+                if counters["allDone:\(key(d))"] != nil { n += 1 }
+                d += 1
+            }
             return n
         }
         let streak = left.isEmpty ? run(from: 0) : run(from: 1)
@@ -2155,6 +2384,9 @@ struct DailyStreakBanner: View {
         let n = GameKind.allCases.count
         let keep = i.streak > 0 ? "to keep your \(i.streak)-day streak" : "to start a streak"
         if i.left.isEmpty { return "All done for today · \(i.streak)-day streak. See you tomorrow" }
+        if app.rescueAvailable, i.ended > 0 {
+            return "Your \(i.ended)-day streak went out. Play any round in the next 24 hours to save it"
+        }
         if i.done == 0 {
             if i.streak > 0 { return "\(i.streak)-day streak · Play all \(n) dailies today to keep it going" }
             if i.ended > 1 { return "Your \(i.ended)-day streak ended. Play all \(n) today to start a new one" }
@@ -2177,7 +2409,8 @@ struct DailyStreakBanner: View {
                     Circle().trim(from: 0, to: CGFloat(i.done) / CGFloat(total))
                         .stroke(Color.orange, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Image(systemName: "flame.fill").foregroundStyle(i.streak > 0 || i.left.isEmpty ? Color.orange : Color.secondary)
+                    Image(systemName: "flame.fill").foregroundStyle(i.streak > 0 || i.left.isEmpty || app.rescueAvailable ? Color.orange : Color.secondary)
+                        .symbolEffect(.pulse, options: .repeating, isActive: app.rescueAvailable)
                 }
                 .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 2) {
@@ -2242,6 +2475,8 @@ private struct LyricLineGame: View {
         let before: String?
         let line: String
         let choices: [Song]
+        var time: Double?
+        var end: Double?
     }
 
     @State private var questions: [Question] = []
@@ -2286,8 +2521,14 @@ private struct LyricLineGame: View {
             VStack(spacing: 8) {
                 ForEach(q.choices) { c in choice(c, q) }
             }
-            LifelineButton(title: "50:50", icon: "circle.lefthalf.filled", used: !removed.isEmpty || over || io.readOnly || picked[q.id] != nil) {
-                act("L:\(q.id)")
+            if picked[q.id] != nil, q.time != nil {
+                Button { _ = LyricMoment.hear(q.song, time: q.time, end: q.end, last: false) } label: {
+                    Label("Hear it again", systemImage: "speaker.wave.2.fill").font(.subheadline.weight(.bold))
+                }
+            } else {
+                LifelineButton(title: "50:50", icon: "circle.lefthalf.filled", used: !removed.isEmpty || over || io.readOnly || picked[q.id] != nil) {
+                    act("L:\(q.id)")
+                }
             }
         }
         .id(q.id)
@@ -2322,7 +2563,8 @@ private struct LyricLineGame: View {
         let found = await LyricSource.songs(data, rng: &rng, need: rounds)
         var out: [Question] = []
         for (s, l) in found {
-            let lines = l.lines.map { $0.text.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            let kept = l.lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+            let lines = kept.map { $0.text.trimmingCharacters(in: .whitespaces) }
             let good = lines.indices.filter { lines[$0].split(separator: " ").count >= 4 && lines[$0].count <= 80 }
             guard let li = good.randomElement(using: &rng) else { continue }
             var others: [Song] = []
@@ -2331,7 +2573,8 @@ private struct LyricLineGame: View {
             }
             guard others.count == 3 else { continue }
             out.append(Question(id: out.count, song: s, before: li > 0 ? lines[li - 1] : nil, line: lines[li],
-                                choices: ([s] + others).shuffled(using: &rng)))
+                                choices: ([s] + others).shuffled(using: &rng),
+                                time: kept[li].time, end: li + 1 < kept.count ? kept[li + 1].time : nil))
         }
         questions = Array(out.prefix(rounds))
         loading = false
@@ -2360,20 +2603,26 @@ private struct LyricLineGame: View {
         withAnimation(live ? .spring(response: 0.3) : nil) { picked[qid] = id }
         if right { score += 1 }
         marks.append(right ? Color(hex: "#22C55E") : Color(white: 0.3))
-        if live { AppModel.shared.haptic(right ? .success : .warning) }
+        if live { if right { GameFX.right() } else { GameFX.wrong() } }
         let last = qid >= rounds - 1
         if last { over = true }
         guard live else {
             if !last { index = qid + 1 }
             return
         }
+        let wait = LyricMoment.hear(q.song, time: q.time, end: q.end, last: last)
         Task {
-            try? await Task.sleep(for: .seconds(1.1))
+            try? await Task.sleep(for: .seconds(wait))
+            if !last {
+                GameAudio.shared.fadeOut(0.8)
+                try? await Task.sleep(for: .seconds(0.8))
+            }
             if last {
                 let perfect = score == rounds && removed.isEmpty
                 io.done(GameResult(won: score >= 3, headline: "\(score) of \(rounds)",
                                    detail: perfect ? "You know every word." : (score >= 3 ? "You know your lyrics." : "Time to read along more."),
-                                   marks: marks, usedLifeline: !removed.isEmpty, counts: perfect ? ["lineReaderPerfect"] : []))
+                                   marks: marks, usedLifeline: !removed.isEmpty, counts: perfect ? ["lineReaderPerfect"] : [],
+                                   bucket: score <= 1 ? "0–1" : "\(score)/5"))
             } else {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index = qid + 1 }
             }
@@ -2402,6 +2651,7 @@ private struct BlitzGame: View {
     @State private var player: AVAudioPlayer?
     @State private var flash: Bool?
     @State private var rng = SeededRNG(seed: 1)
+    @State private var lastTick = 0
     private let length: Double = 60
     private let target = 10
     private var best: Int { AppModel.shared.prefs.data.counters["blitzBest"] ?? 0 }
@@ -2505,13 +2755,19 @@ private struct BlitzGame: View {
     }
 
     private func start() {
+        GameAudio.shared.stop()
         io.record("S")
         started = .now
         playCurrent()
         Task {
             while !over {
                 try? await Task.sleep(for: .milliseconds(100))
-                if let s = started, Date.now.timeIntervalSince(s) >= length, !over { finish(live: true, reason: nil) }
+                if let s = started {
+                    let left = length - Date.now.timeIntervalSince(s)
+                    let whole = Int(ceil(left))
+                    if whole <= 5 && whole > 0 && whole != lastTick { lastTick = whole; GameFX.tick() }
+                    if left <= 0, !over { finish(live: true, reason: nil) }
+                }
             }
         }
     }
@@ -2531,7 +2787,7 @@ private struct BlitzGame: View {
         let ok = c.id == r.song.id
         io.record(ok ? "R" : "W")
         if ok { right += 1 }
-        AppModel.shared.haptic(ok ? .success : .warning)
+        if ok { GameFX.right() } else { GameFX.wrong() }
         withAnimation(.easeOut(duration: 0.15)) { flash = ok }
         Task {
             try? await Task.sleep(for: .seconds(0.35))
@@ -2556,6 +2812,171 @@ private struct BlitzGame: View {
         else { headline = right > best ? "New highscore: \(right)!" : "\(right) right" }
         let detail = reason ?? (io.daily ? (won ? "Lightning fast." : "So close. Try a practice blitz.") : "Your best is \(max(best, right)).")
         io.done(GameResult(won: won, headline: headline, detail: detail,
-                           marks: Array(repeating: Color(hex: "#22C55E"), count: min(right, 20)), bests: ["blitzBest": right]))
+                           marks: Array(repeating: Color(hex: "#22C55E"), count: min(right, 20)), bests: ["blitzBest": right],
+                           bucket: right >= 20 ? "20+" : (right >= 15 ? "15–19" : (right >= 10 ? "10–14" : (right >= 5 ? "5–9" : "0–4")))))
+    }
+}
+
+
+// MARK: - Streak saving
+
+extension AppModel {
+    /// Today's dailies aren't all finished yet (shows the dot on the Games tab).
+    var dailiesLeft: Bool {
+        guard library.entries.count >= GameData.minimumSongs else { return false }
+        let today = AppModel.dayKey()
+        return GameKind.allCases.contains { prefs.data.games[$0.rawValue]?.lastDaily != today }
+    }
+
+    private func dayKey(back days: Int) -> String {
+        AppModel.dayKey(Calendar.current.date(byAdding: .day, value: -days, to: .now) ?? .now)
+    }
+
+    private var dayNumber: Int { Calendar.current.ordinality(of: .day, in: .era, for: .now) ?? 0 }
+
+    /// A streak broke yesterday: for 24 hours, any one round saves it (once every 7 days).
+    var rescueAvailable: Bool {
+        let c = prefs.data.counters
+        let yesterday = dayKey(back: 1), before = dayKey(back: 2)
+        guard c["allDone:\(yesterday)"] == nil, c["rescue:\(yesterday)"] == nil else { return false }
+        guard c["allDone:\(before)"] != nil || c["rescue:\(before)"] != nil else { return false }
+        return dayNumber - (c["lastRescue"] ?? -100) >= 7
+    }
+
+    func useRescue() {
+        prefs.data.counters["rescue:\(dayKey(back: 1))"] = 1
+        prefs.data.counters["lastRescue"] = dayNumber
+        show("Streak saved! Keep it going today.")
+    }
+}
+
+// MARK: - Music and sounds in games
+
+/// Plays songs inside the games (answers, the song you're guessing about), separate from your queue.
+@MainActor @Observable
+final class GameAudio {
+    static let shared = GameAudio()
+    private(set) var song: Song?
+    private(set) var playing = false
+    @ObservationIgnored private var player: AVAudioPlayer?
+
+    func play(_ s: Song, from: Double? = nil, fadeIn: Double = 0, volume: Float = 1) {
+        guard let e = AppModel.shared.library.entry(s.id), FileManager.default.fileExists(atPath: e.fileURL.path),
+              let p = try? AVAudioPlayer(contentsOf: e.fileURL) else { return }
+        if let old = player {
+            old.setVolume(0, fadeDuration: 1.2)
+            Task { try? await Task.sleep(for: .seconds(1.3)); old.stop() }
+        }
+        try? AVAudioSession.sharedInstance().setActive(true)
+        p.currentTime = min(max(0, from ?? e.highlightStart ?? 30), max(0, p.duration - 5))
+        p.volume = fadeIn > 0 ? 0 : volume
+        p.play()
+        if fadeIn > 0 { p.setVolume(volume, fadeDuration: fadeIn) }
+        player = p
+        song = s
+        playing = true
+    }
+
+    func fadeOut(_ seconds: Double = 1.2) {
+        guard let p = player else { return }
+        p.setVolume(0, fadeDuration: seconds)
+        playing = false
+        Task { try? await Task.sleep(for: .seconds(seconds)); if self.player === p { p.pause() } }
+    }
+
+    func toggle() {
+        guard let p = player else { return }
+        if p.isPlaying { p.pause(); playing = false } else { p.volume = 1; p.play(); playing = true }
+    }
+
+    func stop() {
+        player?.stop()
+        player = nil
+        song = nil
+        playing = false
+    }
+
+    /// Leave the game and keep listening: the song moves to the main player at the same spot.
+    func handOff() {
+        guard let s = song else { return }
+        let t = player?.currentTime ?? 0
+        stop()
+        let app = AppModel.shared
+        app.player.play([s], context: "Games")
+        Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            app.player.seek(to: t)
+        }
+    }
+}
+
+/// Plays the moment a lyric line is sung. Returns how long to wait before moving on.
+@MainActor
+enum LyricMoment {
+    static func hear(_ s: Song, time: Double?, end: Double?, last: Bool) -> Double {
+        guard let t = time else {
+            if last { GameAudio.shared.play(s) }
+            return 1.2
+        }
+        GameAudio.shared.play(s, from: max(0, t - 1.5))
+        if last { return 1.6 }
+        let length = (end ?? t + 5) - t
+        return min(10, max(4, length + 2.5))
+    }
+}
+
+/// Soft game sounds (a chime for right, a muffled thunk for wrong, a warm arpeggio for a win, quiet clicks).
+/// They play as system sounds, so they're silent when the phone is on silent, and they mix under any music.
+@MainActor
+enum GameFX {
+    private static var ids: [String: SystemSoundID] = [:]
+
+    static func right() { AppModel.shared.haptic(.success); sound("right", [659.3, 880], step: 0.085, amp: 0.22) }
+    static func wrong() { AppModel.shared.haptic(.warning); sound("wrong", [220, 174.6], step: 0.1, amp: 0.26, soft: true) }
+    static func win() { AppModel.shared.haptic(.success); sound("win", [523.3, 659.3, 784, 1046.5], step: 0.075, amp: 0.2) }
+    static func tap() { AppModel.shared.haptic(.selection); sound("tap", [1318.5], step: 0.02, amp: 0.08) }
+    static func tick() { sound("tick", [987.8], step: 0.03, amp: 0.12) }
+
+    private static func sound(_ name: String, _ notes: [Double], step: Double, amp: Double, soft: Bool = false) {
+        guard AppModel.shared.prefs.data.gameSounds else { return }
+        if ids[name] == nil {
+            let url = FileManager.default.temporaryDirectory.appending(path: "tunes-fx-\(name).wav")
+            try? wav(notes, step: step, amp: amp, soft: soft).write(to: url)
+            var id: SystemSoundID = 0
+            AudioServicesCreateSystemSoundID(url as CFURL, &id)
+            ids[name] = id
+        }
+        if let id = ids[name] { AudioServicesPlaySystemSound(id) }
+    }
+
+    /// A short, rounded tone sequence: sine waves with a gentle harmonic, soft attack and smooth decay.
+    private static func wav(_ notes: [Double], step: Double, amp: Double, soft: Bool) -> Data {
+        let rate = 44_100.0
+        let tail = soft ? 0.22 : 0.18
+        let total = Int((Double(notes.count) * step + tail) * rate)
+        var samples = [Double](repeating: 0, count: total)
+        for (n, f) in notes.enumerated() {
+            let start = Int(Double(n) * step * rate)
+            let length = Int((step + tail) * rate)
+            for i in 0..<length where start + i < total {
+                let t = Double(i) / rate
+                let attack = min(1, t / 0.006)
+                let decay = exp(-t * (soft ? 22 : 14))
+                let tone = sin(2 * .pi * f * t) + (soft ? 0.05 : 0.18) * sin(4 * .pi * f * t)
+                samples[start + i] += tone * attack * decay * amp
+            }
+        }
+        var pcm = Data()
+        for v in samples {
+            var x = Int16(max(-1, min(1, v)) * 32_000).littleEndian
+            withUnsafeBytes(of: &x) { pcm.append(contentsOf: $0) }
+        }
+        func u32(_ v: UInt32) -> Data { var x = v.littleEndian; return withUnsafeBytes(of: &x) { Data($0) } }
+        func u16(_ v: UInt16) -> Data { var x = v.littleEndian; return withUnsafeBytes(of: &x) { Data($0) } }
+        var d = Data("RIFF".utf8)
+        d += u32(UInt32(36 + pcm.count)) + Data("WAVEfmt ".utf8)
+        d += u32(16) + u16(1) + u16(1) + u32(44_100) + u32(88_200) + u16(2) + u16(16)
+        d += Data("data".utf8) + u32(UInt32(pcm.count)) + pcm
+        return d
     }
 }

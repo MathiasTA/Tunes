@@ -121,6 +121,7 @@ extension StatsStore {
 
     /// Your personal top 20 for each calendar week (newest last), with movement and weeks on the chart.
     func weeklyCharts(maxWeeks: Int = 104) -> [WeeklyChart] {
+        memo("weekly-\(maxWeeks)") {
         var cal = Calendar.current
         cal.firstWeekday = 2
         guard let first = records.first?.start,
@@ -157,6 +158,7 @@ extension StatsStore {
         }
         return out
     }
+    }
 
     /// A song's rank over time: plays in the 4 weeks before each weekly sample, only while inside the top 50.
     func journey(of songID: Int, from start: Date? = nil, to end: Date = .now, samples: Int? = nil) -> [(date: Date, rank: Int?)] {
@@ -182,6 +184,7 @@ extension StatsStore {
 
     /// What you played on this date in earlier years (or a month ago, if there's nothing older).
     func onThisDay(_ date: Date = .now) -> (label: String, songs: [SongStat])? {
+        memo("onthisday-\(Calendar.current.startOfDay(for: date).timeIntervalSince1970)") {
         let cal = Calendar.current
         let today = cal.startOfDay(for: date)
         for years in 1...10 {
@@ -196,6 +199,7 @@ extension StatsStore {
             if !top.isEmpty { return ("One month ago today", top) }
         }
         return nil
+    }
     }
 
     /// The last full calendar week (Monday to Sunday) and month.
@@ -216,7 +220,9 @@ extension StatsStore {
 
     /// Your most-played song of last week.
     func songOfTheWeek() -> SongStat? {
+        memo("songofweek") {
         guard let w = Self.lastWeek() else { return nil }
         return topSongs(records(in: w), limit: 1).first
+    }
     }
 }

@@ -65,6 +65,10 @@ struct SongMenuView: View {
                     if let album = shown.album, album.id > 0 {
                         row("Go to album", "opticaldisc") { app.navigate(.album(album)) }
                     }
+                    ForEach(SongMatch.versions(of: song, in: app.library), id: \.id) { v in
+                        let label = v.song.album?.recordType?.lowercased() == "single" || v.song.album == nil ? "Single" : (v.song.album?.title ?? "Album")
+                        row("Also on: \(label)", "square.on.square") { if let a = v.song.album, a.id > 0 { app.navigate(.album(a)) } }
+                    }
                     if downloaded {
                         row("Song stats", "chart.bar") { app.navigate(.songStats(song.id)) }
                         row("Chart history", "chart.line.uptrend.xyaxis") { app.navigate(.songJourney(song.id)) }

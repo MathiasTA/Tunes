@@ -184,6 +184,8 @@ struct HomeView: View {
             RecapCard().padding(.horizontal)
         } else if section.kind == .onThisDay {
             OnThisDayCard().padding(.horizontal)
+        } else if section.kind == .todaysGames {
+            TodaysGamesCard().padding(.horizontal)
         } else if section.kind == .badges {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -295,7 +297,7 @@ struct HomeView: View {
             return list
         case .favoriteAlbums:
             return favoriteAlbums()
-        case .badges, .dice, .songOfDay, .songOfWeek, .recap, .onThisDay:
+        case .badges, .dice, .songOfDay, .songOfWeek, .recap, .onThisDay, .todaysGames:
             return []
         }
     }

@@ -39,9 +39,36 @@ final class StatsStore {
 
     // MARK: Recording
 
+    /// Remembered results of slow calculations, cleared whenever your history changes.
+    @ObservationIgnored private var memoStore: [String: Any] = [:]
+    @ObservationIgnored private var memoStamp = ""
+
+    func memo<T>(_ key: String, _ build: () -> T) -> T {
+        let stamp = "\(version)-\(records.count)"
+        if stamp != memoStamp { memoStore = [:]; memoStamp = stamp }
+        if let hit = memoStore[key] as? T { return hit }
+        let value = build()
+        memoStore[key] = value
+        return value
+    }
+
+    /// Points plays of the same song (single and album version) at one ID, so they count together.
+    func mergeVersions(_ lib: Library) {
+        let map = SongMatch.canonical(lib)
+        var byKey: [String: Int] = [:]
+        for g in SongMatch.groups(lib) { byKey[SongMatch.key(g[0].song)] = g[0].id }
+        var changed = false
+        for i in records.indices {
+            let r = records[i]
+            let target = map[r.songID] ?? (lib.entry(r.songID) == nil ? byKey[SongMatch.key(title: r.title, artist: r.artist.name)] : nil)
+            if let t = target, t != r.songID { records[i].songID = t; changed = true }
+        }
+        if changed { version += 1; scheduleSave() }
+    }
+
     func startPlay(_ entry: LibraryEntry) -> UUID {
         let s = entry.song
-        let r = PlayRecord(songID: s.id, title: s.title, artist: s.artist, others: s.featured, artworkURL: s.artworkURL,
+        let r = PlayRecord(songID: SongMatch.canonical(AppModel.shared.library)[s.id] ?? s.id, title: s.title, artist: s.artist, others: s.featured, artworkURL: s.artworkURL,
                            genre: entry.genre ?? s.album?.genre, releaseYear: s.album?.year.flatMap { Int($0) },
                            start: .now, seconds: 0, origin: .tunes)
         records.append(r)
@@ -105,6 +132,10 @@ final class StatsStore {
     // MARK: Queries
 
     func records(in interval: DateInterval?) -> [PlayRecord] {
+        memo("records-\(interval?.start.timeIntervalSince1970 ?? 0)-\(interval?.end.timeIntervalSince1970 ?? 0)") { filtered(interval) }
+    }
+
+    private func filtered(_ interval: DateInterval?) -> [PlayRecord] {
         guard let interval else { return records.filter { $0.seconds >= Self.countThreshold } }
         return records.filter { $0.seconds >= Self.countThreshold && $0.start >= interval.start && $0.start < interval.end }
     }
@@ -242,6 +273,7 @@ final class StatsStore {
     /// The current daily streak (counting today or, if you haven't listened yet today, up to yesterday),
     /// and the Streak theme's level, which cools by one for each day missed since the last streak.
     func streakInfo() -> StreakInfo {
+        memo("streak") {
         let cal = Calendar.current
         let days = Set(records.filter { $0.seconds >= Self.countThreshold }.map { cal.startOfDay(for: $0.start) })
         guard let last = days.max() else { return StreakInfo() }
@@ -263,13 +295,16 @@ final class StatsStore {
         }
         return StreakInfo(current: gap <= 1 ? run : 0, level: max(0, level - max(0, gap - 1)))
     }
+    }
 
     /// Seconds listened per day (start of day → seconds).
     func daily() -> [Date: Double] {
+        memo("daily") {
         let cal = Calendar.current
         var out: [Date: Double] = [:]
         for r in records where r.seconds >= Self.countThreshold { out[cal.startOfDay(for: r.start), default: 0] += r.seconds }
         return out
+    }
     }
 
     /// The day with the most listening.

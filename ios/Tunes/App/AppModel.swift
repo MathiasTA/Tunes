@@ -20,12 +20,15 @@ final class AppModel {
     let history = HistoryImporter()
     let wrappedAudio = WrappedAudio()
 
-    enum Tab: Hashable { case home, library, stats }
+    enum Tab: Hashable { case home, library, stats, games }
 
     var tab: Tab = .home
     var homePath: [Route] = []
     var libraryPath: [Route] = []
     var statsPath: [Route] = []
+    var gamesPath: [Route] = []
+    /// Bumped when the Games tab is tapped while already at its top page (scroll up).
+    var gamesReselect = 0
     var showPlayer = false
     var showWrapped = false
     var sheet: AppSheet?
@@ -58,6 +61,7 @@ final class AppModel {
         case .home: if homePath.isEmpty { homeReselect += 1 } else { homePath.removeAll() }
         case .library: libraryPath.removeAll()
         case .stats: statsPath.removeAll()
+        case .games: if gamesPath.isEmpty { gamesReselect += 1 } else { gamesPath.removeAll() }
         }
     }
 
@@ -68,6 +72,7 @@ final class AppModel {
         case .home: homePath.append(route)
         case .library: libraryPath.append(route)
         case .stats: statsPath.append(route)
+        case .games: gamesPath.append(route)
         }
     }
 
@@ -86,6 +91,7 @@ final class AppModel {
         playlists.createDailyMixesIfNeeded()
         playlists.syncHomeCharts(prefs.data.homeCharts)
         library.analyzeMissing()
+        stats.mergeVersions(library)
         pickSongOfTheDay()
         UIDevice.current.isBatteryMonitoringEnabled = true
         WeatherWatcher.shared.start()
@@ -101,6 +107,7 @@ final class AppModel {
     }
 
     func onForeground() {
+        stats.mergeVersions(library)
         checkBadges(force: true)
         pickSongOfTheDay()
         Task { await WeatherWatcher.shared.refreshIfNeeded() }

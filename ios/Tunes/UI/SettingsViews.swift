@@ -498,6 +498,7 @@ struct AppearanceView: View {
             Section {
                 Toggle("Tab bar labels", isOn: $prefs.data.tabLabels)
                 Toggle("Haptics", isOn: $prefs.data.haptics)
+                Toggle("Game sounds", isOn: $prefs.data.gameSounds)
                 Toggle("Animations", isOn: $prefs.data.animations)
             } header: { Text("Feel") } footer: {
                 Text("Tab bar labels: shows the words Home, Library and Stats under the icons at the bottom. Haptics: the small vibrations when you tap buttons, like a song, flip a switch or finish a download. Animations: turn off for instant screen changes with no sliding or fading.")

@@ -5,6 +5,8 @@ struct StatsView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
     @AppStorage("statsRange") private var range: StatsRange = .month
+    @State private var allArtists = false
+    @State private var allSongs = false
 
     var body: some View {
         let stats = app.stats
@@ -61,7 +63,7 @@ struct StatsView: View {
                 if !artists.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Top artists").font(.title3.bold())
-                        ForEach(Array(artists.enumerated()), id: \.element.id) { i, a in
+                        ForEach(Array(artists.prefix(allArtists ? 10 : 5).enumerated()), id: \.element.id) { i, a in
                             NavigationLink(value: Route.artist(a.artist)) {
                                 HStack(spacing: 12) {
                                     Text("\(i + 1)").font(.subheadline.bold().monospacedDigit()).foregroundStyle(.secondary).frame(width: 22)
@@ -76,6 +78,7 @@ struct StatsView: View {
                             }
                             .disabled(a.artist.id < 0)
                         }
+                        if artists.count > 5 { ShowMoreButton(expanded: $allArtists) }
                     }
                 }
 
@@ -84,7 +87,7 @@ struct StatsView: View {
                 if !songs.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Top songs").font(.title3.bold())
-                        ForEach(Array(songs.enumerated()), id: \.element.id) { i, s in
+                        ForEach(Array(songs.prefix(allSongs ? 10 : 5).enumerated()), id: \.element.id) { i, s in
                             NavigationLink(value: Route.songStats(s.songID)) {
                                 HStack(spacing: 12) {
                                     Text("\(i + 1)").font(.subheadline.bold().monospacedDigit()).foregroundStyle(.secondary).frame(width: 22)
@@ -98,6 +101,7 @@ struct StatsView: View {
                                 }
                             }
                         }
+                        if songs.count > 5 { ShowMoreButton(expanded: $allSongs) }
                     }
                 }
 
@@ -134,7 +138,6 @@ struct StatsView: View {
                     }
                 }
 
-                GamesSection()
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
@@ -362,5 +365,25 @@ struct ListeningCalendar: View {
         }
         .padding(.top, 4)
         .transition(.opacity)
+    }
+}
+
+
+/// "Show top 10" / "Show less" under a top-5 list.
+struct ShowMoreButton: View {
+    @Binding var expanded: Bool
+    @Environment(\.look) private var look
+    var body: some View {
+        Button { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { expanded.toggle() } } label: {
+            HStack(spacing: 4) {
+                Text(expanded ? "Show less" : "Show top 10")
+                Image(systemName: "chevron.down").rotationEffect(.degrees(expanded ? 180 : 0))
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(look.accent)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
     }
 }

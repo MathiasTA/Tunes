@@ -80,12 +80,12 @@ struct EQProfile: Codable, Hashable {
 
 enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
     case summary, madeForYou, newFromArtists, charts, recentlyPlayed, recentlyAdded, topArtists, following, onRepeat, trending, newReleases
-    case yourPlaylists, favoriteAlbums, badges, dice, songOfDay, songOfWeek, recap, onThisDay
+    case yourPlaylists, favoriteAlbums, badges, dice, songOfDay, songOfWeek, recap, onThisDay, todaysGames
     var id: String { rawValue }
     /// New sections are on by default, except a few you choose to turn on.
-    var visibleByDefault: Bool { ![.badges, .dice, .songOfWeek, .onThisDay].contains(self) }
+    var visibleByDefault: Bool { ![.badges, .dice, .songOfWeek, .onThisDay, .todaysGames].contains(self) }
     /// These have their own fixed look; everything else can change layout (Dice chooses its songs instead).
-    var hasLayouts: Bool { ![.summary, .badges, .dice, .songOfDay, .songOfWeek, .recap, .onThisDay].contains(self) }
+    var hasLayouts: Bool { ![.summary, .badges, .dice, .songOfDay, .songOfWeek, .recap, .onThisDay, .todaysGames].contains(self) }
     var defaultLayout: HomeLayout {
         switch self {
         case .onRepeat: .numbered
@@ -116,6 +116,7 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .songOfWeek: "Song of the week"
         case .recap: "Your recap"
         case .onThisDay: "On this day"
+        case .todaysGames: "Today's games"
         }
     }
     var icon: String {
@@ -139,6 +140,7 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .songOfWeek: "calendar.badge.clock"
         case .recap: "sparkles.rectangle.stack.fill"
         case .onThisDay: "clock.arrow.circlepath"
+        case .todaysGames: "gamecontroller.fill"
         }
     }
 }
@@ -276,6 +278,8 @@ struct PrefsData: Codable, Equatable {
     var games: [String: GameRecord] = [:]
     /// Moves made in today's daily puzzles ("tunedle|2026-11-25" → moves), so leaving doesn't reset them.
     var gameProgress: [String: [String]] = [:]
+    /// Soft sounds in the games.
+    var gameSounds = true
     /// Dice block on Home: where its songs come from.
     var diceSource: DiceSource = .anything
     var diceArtist: Artist?
@@ -342,6 +346,7 @@ struct PrefsData: Codable, Equatable {
         birthdayMonth = v(.birthdayMonth, d.birthdayMonth); birthdayDay = v(.birthdayDay, d.birthdayDay)
         diceSource = v(.diceSource, d.diceSource)
         songOfDay = v(.songOfDay, d.songOfDay); games = v(.games, d.games); gameProgress = v(.gameProgress, d.gameProgress)
+        gameSounds = v(.gameSounds, d.gameSounds)
         diceArtist = try? c.decodeIfPresent(Artist.self, forKey: .diceArtist)
         dicePlaylistID = try? c.decodeIfPresent(UUID.self, forKey: .dicePlaylistID)
         home = v(.home, d.home); homeCharts = v(.homeCharts, d.homeCharts)
@@ -712,4 +717,8 @@ struct GameRecord: Codable, Hashable {
     /// How today's daily ended, for "See your answer".
     var lastHeadline: String?
     var lastDetail: String?
+    /// Every round (daily and practice), for the game's stats.
+    var total: Int?
+    var totalWon: Int?
+    var dist: [String: Int]?
 }

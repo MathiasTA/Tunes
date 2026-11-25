@@ -61,6 +61,12 @@ struct RootView: View {
                     .solidTabBar(look)
                     .tabItem { tabLabel("Stats", "chart.bar.fill") }
                     .tag(AppModel.Tab.stats)
+                NavigationStack(path: $app.gamesPath) { GamesHubView().miniPlayerSpace().withRoutes() }
+                    .miniPlayerInset()
+                    .solidTabBar(look)
+                    .tabItem { tabLabel("Games", "gamecontroller.fill") }
+                    .badge(app.dailiesLeft ? Text("") : nil)
+                    .tag(AppModel.Tab.games)
             }
 
             if app.showPlayer {
