@@ -234,7 +234,9 @@ struct FullPlayerView: View {
     private func loadForCurrent() async {
         guard let e = app.player.current else { return }
         if let c = await DominantColor.color(for: e.song) { withAnimation(.easeInOut(duration: 0.6)) { coverColor = c } }
-        waveform = AnalysisCache.load(e.id)?.waveform(bars: 48) ?? []
+        let shape = await AnalysisCache.loadOrMake(e.id, file: e.fileURL)?.waveform(bars: 64) ?? []
+        guard app.player.currentID == e.id else { return }
+        withAnimation(.easeOut(duration: 0.4)) { waveform = shape }
         lyrics = .none
         if app.prefs.data.lyricsEnabled || app.prefs.data.playerStyle == .lyrics {
             if let cached = LyricsService.cached(e.id) { lyrics = cached }

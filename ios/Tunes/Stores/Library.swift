@@ -500,8 +500,21 @@ final class Library {
     }
 
     /// Re-analyzes songs that never got analyzed (e.g. after an update).
+    /// Also redoes songs whose saved analysis was removed (Clear cache, or iOS freeing space), which
+    /// holds the waveform and the silence used for gapless playback.
     func analyzeMissing() {
-        for e in entries where e.loudnessDB == nil { analyze(e.id) }
+        let missing = entries.filter { $0.loudnessDB == nil || !AnalysisCache.exists($0.id) }
+        Task {
+            for e in missing where FileManager.default.fileExists(atPath: e.fileURL.path) {
+                guard let a = await AudioAnalysis.analyze(e.fileURL) else { continue }
+                AnalysisCache.save(a, id: e.id)
+                update(e.id) { entry in
+                    entry.loudnessDB = a.loudnessDB
+                    entry.highlightStart = a.highlightStart
+                    if a.duration > 0 && entry.song.duration <= 0 { entry.song.duration = a.duration }
+                }
+            }
+        }
     }
 }
 
@@ -515,5 +528,13 @@ enum AnalysisCache {
     }
     static func load(_ id: Int) -> AudioAnalysis? {
         (try? Data(contentsOf: url(id))).flatMap { try? JSONDecoder().decode(AudioAnalysis.self, from: $0) }
+    }
+    static func exists(_ id: Int) -> Bool { FileManager.default.fileExists(atPath: url(id).path) }
+    /// The saved analysis, or a fresh one made from the file (and saved) if it's missing.
+    static func loadOrMake(_ id: Int, file: URL) async -> AudioAnalysis? {
+        if let a = load(id) { return a }
+        guard FileManager.default.fileExists(atPath: file.path), let a = await AudioAnalysis.analyze(file) else { return nil }
+        save(a, id: id)
+        return a
     }
 }

@@ -93,12 +93,21 @@ struct AudioAnalysis: Codable, Hashable {
     }
 
     /// Waveform bars for display.
+    /// Uses the average of each stretch and stretches the range between the song's quiet and loud parts,
+    /// so loud, modern masters don't all come out as a flat block.
     func waveform(bars: Int) -> [Float] {
         guard !blocks.isEmpty, bars > 0 else { return [] }
         let per = max(1, blocks.count / bars)
-        return stride(from: 0, to: blocks.count, by: per).map { i in
+        let raw: [Float] = stride(from: 0, to: blocks.count, by: per).prefix(bars).map { i in
             let slice = blocks[i..<min(blocks.count, i + per)]
-            return slice.max() ?? 0
+            return slice.reduce(0, +) / Float(slice.count)
+        }
+        let sorted = raw.sorted()
+        let low = sorted[Int(Double(sorted.count - 1) * 0.05)]
+        let high = max(sorted.last ?? 1, low + 0.0001)
+        return raw.map { v in
+            let t = min(1, max(0, (v - low) / (high - low)))
+            return 0.12 + 0.88 * powf(t, 1.6)
         }
     }
 }
