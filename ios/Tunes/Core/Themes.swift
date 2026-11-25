@@ -24,6 +24,50 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// One short line about the theme, shown under its group when it's the active one.
+    var blurb: String {
+        switch self {
+        case .dark: "Soft charcoal, easy on the eyes"
+        case .black: "Pure black, saves battery on most iPhones"
+        case .light: "Bright and clean"
+        case .auto: "Follows your iPhone's light or dark mode"
+        case .dynamic: "Colors from the cover that's playing"
+        case .horizon: "Follows the sky from sunrise to night"
+        case .weather: "Matches the weather outside"
+        case .seasons: "Seasons, holidays and your birthday"
+        case .pulse: "Moves with the tempo and mood of the music"
+        case .moon: "Tonight's real moon"
+        case .battery: "Changes with your charge"
+        case .streak: "Hotter the longer your streak runs"
+        case .midnight: "Deep indigo and violet"
+        case .sunset: "Warm dusk over a dark sky"
+        case .ocean: "Deep sea blues"
+        case .forest: "Dark greens and fresh light"
+        case .rose: "Soft pinks and lilac"
+        case .synthwave: "Neon and a retro grid"
+        case .matcha: "Light, fresh green"
+        case .coffee: "Warm browns and cream"
+        case .arctic: "Cool, icy light blues"
+        case .graphite: "Quiet grays"
+        case .vapor: "Pastel vaporwave with a retro sun"
+        case .abyss: "The deep sea, with glowing life"
+        case .aurora: "Curtains of northern lights"
+        case .nebula: "A slow swirl of space dust"
+        case .lava: "Lava-lamp blobs that rise and merge"
+        case .lagoon: "Sunlight rippling through water"
+        case .pastel: "Soft bubbles floating up"
+        case .fireflies: "Glowing dots drifting in the dark"
+        case .tide: "Waves rolling along the bottom"
+        case .warp: "Stars streaming past"
+        case .bronze: "Polished bronze"
+        case .silver: "Brushed silver"
+        case .gold: "Rich gold"
+        case .bronzeGlow: "Bronze with drifting embers"
+        case .silverShine: "Silver with a sweeping glint"
+        case .goldRush: "Gold with glittering sparkles"
+        }
+    }
+
     /// The plain themes; everything else paints its own background.
     var isClassic: Bool { [.dark, .black, .light, .auto].contains(self) }
     /// Themes whose look changes by themselves (with the song, or with the time of day).

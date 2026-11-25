@@ -176,6 +176,14 @@ struct HomeView: View {
             summary
         } else if section.kind == .dice {
             DiceBlock()
+        } else if section.kind == .songOfDay {
+            SongOfTheDayCard().padding(.horizontal)
+        } else if section.kind == .songOfWeek {
+            SongOfTheWeekCard().padding(.horizontal)
+        } else if section.kind == .recap {
+            RecapCard().padding(.horizontal)
+        } else if section.kind == .onThisDay {
+            OnThisDayCard().padding(.horizontal)
         } else if section.kind == .badges {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -287,7 +295,7 @@ struct HomeView: View {
             return list
         case .favoriteAlbums:
             return favoriteAlbums()
-        case .badges, .dice:
+        case .badges, .dice, .songOfDay, .songOfWeek, .recap, .onThisDay:
             return []
         }
     }

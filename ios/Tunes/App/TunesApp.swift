@@ -95,7 +95,7 @@ struct RootView: View {
                 // Sheets keep their own light/dark mode, so they follow theme changes right away (e.g. in Settings).
                 .preferredColorScheme(app.prefs.colorScheme(for: look))
         }
-        .fullScreenCover(isPresented: Binding(get: { !app.prefs.data.onboarded }, set: { _ in })) {
+        .fullScreenCover(isPresented: Binding(get: { app.needsWelcome }, set: { _ in })) {
             WelcomeView().environment(app).environment(\.look, look).tint(look.accent)
                 .preferredColorScheme(app.prefs.colorScheme(for: look))
         }
@@ -169,6 +169,10 @@ extension View {
             case .stats: StatsView()
             case .settings: SettingsView()
             case .songStats(let id): SongStatsView(songID: id)
+            case .yourCharts: YourChartsView()
+            case .songJourney(let id): SongJourneyView(songID: id)
+            case .recaps: RecapsView()
+            case .games: GamesHubView()
             }
             }
             .miniPlayerSpace()

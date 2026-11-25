@@ -452,6 +452,41 @@ final class Player {
         return Double(p.crossfade)
     }
 
+    @ObservationIgnored private var beatInfo: [Int: AudioAnalysis] = [:]
+    private func beats(_ e: LibraryEntry) -> AudioAnalysis? {
+        if let a = beatInfo[e.id] { return a }
+        guard let a = AnalysisCache.load(e.id), a.bpm != nil else { return nil }
+        beatInfo[e.id] = a
+        return a
+    }
+
+    /// Smart transitions: start the next song where this one winds down, with both songs' beats lined up,
+    /// and blend over a few bars. Albums keep true gapless. Returns nil to use the normal behavior.
+    private func smartTransition(from a: LibraryEntry, to b: LibraryEntry) -> (overlap: Double, nextStart: Double)? {
+        let p = AppModel.shared.prefs.data
+        guard p.smartTransitions, a.id != b.id, repeatMode != .one else { return nil }
+        if let x = a.song.album?.id, x == b.song.album?.id { return nil }
+        guard a.trimEnd == nil, let end = playEnd(a) else { return nil }
+        let nextStart0 = playStart(b)
+        guard let ca = beats(a), let cb = beats(b), let lenA = ca.beatLength, let lenB = cb.beatLength else {
+            return (3, nextStart0) // no beat info yet: a short, clean crossfade
+        }
+        // Tempos that are close (or about double/half) can be lined up; very different ones just get a short blend.
+        var ratio = max(lenA, lenB) / min(lenA, lenB)
+        if ratio > 1.8 { ratio /= 2 }
+        guard ratio < 1.12 else { return (3, nextStart0) }
+        // Where to start: the first beat at or after the outro, but at most 12 s (and at least 3 s) before the end.
+        let outro = max(ca.outroStart ?? (end - 8), end - 12)
+        let offset = ca.beatOffset ?? 0
+        var t = offset + ceil((outro - offset) / lenA) * lenA
+        if end - t < 3 { t = offset + floor((end - 3 - offset) / lenA) * lenA }
+        let overlap = min(12, max(3, end - t))
+        // The next song begins on its first strong beat (never before its own start or trim).
+        let first = max(nextStart0, cb.firstBeat ?? nextStart0)
+        let nextStart = first - nextStart0 > 8 ? nextStart0 : first
+        return (overlap, nextStart)
+    }
+
     private func startTimer() {
         guard timer == nil else { return }
         let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
@@ -481,7 +516,12 @@ final class Player {
 
         if let cur = current, let nextID = peekNextID(), let nextEntry = AppModel.shared.library.entry(nextID) {
             let overlap = crossfade(from: cur, to: nextEntry)
-            if !(AppModel.shared.prefs.data.gapless) && overlap == 0 {
+            if let smart = smartTransition(from: cur, to: nextEntry) {
+                let base = item(for: nextEntry)
+                let it = AudioEngine.Item(id: base.id, url: base.url, start: smart.nextStart, end: base.end, gain: base.gain,
+                                          fadeIn: base.fadeIn, fadeOut: base.fadeOut)
+                _ = try? engine.prepareNext(it, overlap: smart.overlap)
+            } else if !(AppModel.shared.prefs.data.gapless) && overlap == 0 {
                 // Without gapless, let the song end on its own and start the next one normally.
             } else {
                 _ = try? engine.prepareNext(item(for: nextEntry), overlap: overlap)

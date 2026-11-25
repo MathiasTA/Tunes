@@ -117,7 +117,10 @@ struct SoundSettingsView: View {
                     Slider(value: Binding(get: { Double(prefs.data.crossfade) }, set: { prefs.data.crossfade = Int($0.rounded()) }), in: 0...12, step: 1)
                 }
                 Toggle("Never crossfade inside albums", isOn: $prefs.data.noCrossfadeInAlbums)
-            } header: { Text("Transitions") }
+                Toggle("Smart transitions", isOn: $prefs.data.smartTransitions)
+            } header: { Text("Transitions") } footer: {
+                Text("Smart transitions start the next song where the current one winds down, with the beats lined up, and blend them over a few bars. Used between songs from different albums (shuffle, mixes, playlists); albums always play gapless. Songs get their beat info when they're analyzed after downloading.")
+            }
 .themedRow()
         }
         .themedForm()
@@ -406,9 +409,7 @@ struct AppearanceView: View {
             Section {
                 ThemeGrid()
                     .padding(.vertical, 6)
-            } header: { Text("Theme") } footer: {
-                Text("Alive themes change by themselves: Dynamic with the cover that's playing, Horizon with the sky through the day, Weather with the weather outside, Seasons with the time of year and holidays, Pulse with the music, Moon with tonight's moon, Battery with your battery, and Streak with your daily listening streak. They always use their own accent color; the others pick a matching one you can change below. Medal themes unlock as you earn badges. Black is pure black, which saves battery on most iPhones. Moving themes hold still when Animations is off.")
-            }
+            } header: { Text("Theme") }
 .themedRow()
             AliveThemeOptions()
             Section {
@@ -573,6 +574,15 @@ struct ThemeGrid: View {
                         }
                         .padding(.bottom, 6)
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    if group.1.contains(app.prefs.data.theme) {
+                        let t = app.prefs.data.theme
+                        Text("\(t.label) · \(t.blurb)")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(look.accent)
+                            .padding(.bottom, 6)
+                            .id(t)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
             }
@@ -1121,7 +1131,11 @@ struct WelcomeView: View {
     @Environment(\.look) private var look
     @State private var name = ""
     @State private var step = 0
+    @State private var month = 0
+    @State private var day = 1
     @FocusState private var focused: Bool
+
+    private static let months = Calendar.current.monthSymbols
 
     var body: some View {
         ZStack {
@@ -1149,6 +1163,7 @@ struct WelcomeView: View {
                             .submitLabel(.done)
                             .onSubmit(finish)
                         Text("Only used for greetings and your Wrapped. It never leaves this iPhone.").font(.footnote).opacity(0.8)
+                        birthday.padding(.top, 10)
                     }
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
                 }
@@ -1169,10 +1184,55 @@ struct WelcomeView: View {
             .padding(28)
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            name = app.prefs.data.name
+            month = app.prefs.data.birthdayMonth
+            day = max(1, app.prefs.data.birthdayDay)
+        }
+    }
+
+    /// Optional birthday: just the day and month.
+    private var birthday: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Birthday (optional)").font(.headline)
+            HStack(spacing: 10) {
+                Menu {
+                    Button("Not set") { month = 0 }
+                    ForEach(1...12, id: \.self) { m in Button(Self.months[m - 1]) { month = m; day = min(day, Self.days(in: m)) } }
+                } label: {
+                    pill(month == 0 ? "Month" : Self.months[month - 1])
+                }
+                Menu {
+                    ForEach(1...Self.days(in: max(month, 1)), id: \.self) { d in Button("\(d)") { day = d } }
+                } label: {
+                    pill(month == 0 ? "Day" : "\(day)")
+                }
+                .disabled(month == 0)
+                .opacity(month == 0 ? 0.5 : 1)
+            }
+            Text("Not for data collection, just so we can celebrate you.").font(.footnote).opacity(0.8)
+        }
+    }
+
+    private func pill(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Text(text).font(.body.weight(.semibold))
+            Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.bold)).opacity(0.7)
+        }
+        .padding(.horizontal, 16).frame(height: 48)
+        .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
+        .foregroundStyle(.white)
+    }
+
+    private static func days(in month: Int) -> Int {
+        Calendar.current.range(of: .day, in: .month, for: Calendar.current.date(from: DateComponents(year: 2000, month: month)) ?? .now)?.count ?? 31
     }
 
     private func finish() {
         app.prefs.data.name = name.trimmingCharacters(in: .whitespaces)
+        app.prefs.data.birthdayMonth = month
+        app.prefs.data.birthdayDay = month == 0 ? 0 : day
+        app.prefs.data.counters["welcome2"] = 1
         withAnimation { app.prefs.data.onboarded = true }
         app.haptic(.success)
     }

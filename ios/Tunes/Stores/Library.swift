@@ -503,9 +503,12 @@ final class Library {
     /// Also redoes songs whose saved analysis was removed (Clear cache, or iOS freeing space), which
     /// holds the waveform and the silence used for gapless playback.
     func analyzeMissing() {
-        let missing = entries.filter { $0.loudnessDB == nil || !AnalysisCache.exists($0.id) }
+        // Version 2 added tempo, beats and mood (for Pulse and smart transitions): everything is redone once.
+        let redoAll = AppModel.shared.prefs.data.counters["analysisV2"] == nil
+        let missing = entries.filter { redoAll || $0.loudnessDB == nil || !AnalysisCache.exists($0.id) }
         Task {
             for e in missing where FileManager.default.fileExists(atPath: e.fileURL.path) {
+                if redoAll, e.loudnessDB != nil, AnalysisCache.load(e.id)?.bpm != nil { continue } // already done
                 guard let a = await AudioAnalysis.analyze(e.fileURL) else { continue }
                 AnalysisCache.save(a, id: e.id)
                 update(e.id) { entry in
@@ -514,6 +517,7 @@ final class Library {
                     if a.duration > 0 && entry.song.duration <= 0 { entry.song.duration = a.duration }
                 }
             }
+            if redoAll { AppModel.shared.prefs.data.counters["analysisV2"] = 1 }
         }
     }
 }

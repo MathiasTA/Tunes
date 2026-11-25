@@ -14,6 +14,23 @@ struct AudioAnalysis: Codable, Hashable {
     var duration: Double
     /// RMS level per 0.1 s block, 0...1.
     var blocks: [Float]
+    /// Tempo, the time of one beat (the rest follow every 60/bpm seconds), and energy 0...1. Nil for songs
+    /// analyzed before these were added (they get analyzed again).
+    var bpm: Double?
+    var beatOffset: Double?
+    var energy: Double?
+    /// Where the song winds down (for smart transitions), and its first beat after the silence at the start.
+    var outroStart: Double?
+    var firstBeat: Double?
+
+    /// How calm (0) or energetic (1) the song feels, from tempo and energy.
+    var mood: Double {
+        let tempo = min(1, max(0, ((bpm ?? 100) - 60) / 120))
+        return 0.55 * tempo + 0.45 * (energy ?? 0.5)
+    }
+
+    /// Seconds per beat.
+    var beatLength: Double? { bpm.map { 60 / $0 } }
 
     static let blockSeconds = 0.1
 
@@ -33,6 +50,11 @@ struct AudioAnalysis: Codable, Hashable {
         var pendingSum: Float = 0
         var pendingCount: AVAudioFrameCount = 0
         let channels = Int(format.channelCount)
+        // Finer energy steps (512 frames, ~12 ms) for finding the beat.
+        let hop = 512
+        var hops: [Float] = []
+        var hopSum: Float = 0
+        var hopCount = 0
 
         while true {
             do { try file.read(into: buffer) } catch { break }
@@ -45,6 +67,9 @@ struct AudioAnalysis: Codable, Hashable {
                 s /= Float(channels)
                 pendingSum += s
                 pendingCount += 1
+                hopSum += s
+                hopCount += 1
+                if hopCount == hop { hops.append(hopSum / Float(hop)); hopSum = 0; hopCount = 0 }
                 if pendingCount == blockFrames {
                     let rms = sqrt(pendingSum / Float(pendingCount))
                     blocks.append(rms)
@@ -88,8 +113,80 @@ struct AudioAnalysis: Codable, Hashable {
         }
         let peak = blocks.max() ?? 1
         let normalized = blocks.map { min(1, $0 / max(peak, 0.0001)) }
-        return AudioAnalysis(loudnessDB: loudness, highlightStart: highlight, leadingSilence: lead,
-                             trailingSilence: trail, duration: Double(file.length) / rate, blocks: normalized)
+        let duration = Double(file.length) / rate
+        var result = AudioAnalysis(loudnessDB: loudness, highlightStart: highlight, leadingSilence: lead,
+                                   trailingSilence: trail, duration: duration, blocks: normalized)
+        let hopSeconds = Double(hop) / rate
+        if let beat = Self.findBeat(hops, hopSeconds: hopSeconds) {
+            result.bpm = beat.bpm
+            result.beatOffset = beat.offset
+            let period = 60 / beat.bpm
+            let k = max(0, ceil((lead - beat.offset) / period))
+            result.firstBeat = beat.offset + k * period
+            let loud = min(1, max(0, (loudness + 24) / 16))
+            result.energy = 0.65 * loud + 0.35 * min(1, beat.onsetDensity / 0.05)
+        }
+        result.outroStart = Self.findOutro(normalized, duration: duration, trailing: trail)
+        return result
+    }
+
+    /// Tempo from how regularly the music's "hits" repeat (autocorrelation of energy jumps), 60–180 BPM,
+    /// gently preferring tempos near 120. Then the beat position that lines up best with the hits.
+    private static func findBeat(_ hops: [Float], hopSeconds: Double) -> (bpm: Double, offset: Double, onsetDensity: Double)? {
+        guard hops.count > 400 else { return nil }
+        var onset = [Float](repeating: 0, count: hops.count)
+        var prev = log10(hops[0] + 1e-9)
+        for i in 1..<hops.count {
+            let cur = log10(hops[i] + 1e-9)
+            onset[i] = max(0, cur - prev)
+            prev = cur
+        }
+        // Use up to 90 s from the middle of the song.
+        let window = min(onset.count, Int(90 / hopSeconds))
+        let start = max(0, (onset.count - window) / 2)
+        let seg = Array(onset[start..<(start + window)])
+        let minLag = max(1, Int((60.0 / 180) / hopSeconds)), maxLag = Int((60.0 / 60) / hopSeconds)
+        guard seg.count > maxLag * 2 else { return nil }
+        var bestLag = 0
+        var bestScore: Double = 0
+        for lag in minLag...maxLag {
+            var sum: Float = 0
+            for i in 0..<(seg.count - lag) { sum += seg[i] * seg[i + lag] }
+            let bpm = 60 / (Double(lag) * hopSeconds)
+            let w = exp(-0.5 * pow(log2(bpm / 120) / 0.9, 2))
+            let score = Double(sum) / Double(seg.count - lag) * w
+            if score > bestScore { bestScore = score; bestLag = lag }
+        }
+        guard bestLag > 0, bestScore > 0 else { return nil }
+        var bestPhase = 0
+        var bestPhaseScore: Float = -1
+        for p in 0..<bestLag {
+            var sum: Float = 0
+            var i = p
+            while i < onset.count { sum += onset[i]; i += bestLag }
+            if sum > bestPhaseScore { bestPhaseScore = sum; bestPhase = p }
+        }
+        let mean = Double(onset.reduce(0, +)) / Double(onset.count)
+        return (60 / (Double(bestLag) * hopSeconds), Double(bestPhase) * hopSeconds, mean)
+    }
+
+    /// The last moment the song is still going strong; after it, it winds down. Never earlier than
+    /// 30 seconds before the end.
+    private static func findOutro(_ blocks: [Float], duration: Double, trailing: Double) -> Double? {
+        guard blocks.count > 300 else { return nil }
+        let audible = blocks.filter { $0 > 0.05 }.sorted()
+        guard !audible.isEmpty else { return nil }
+        let median = audible[audible.count / 2]
+        let end = max(0, blocks.count - Int(trailing / blockSeconds))
+        let span = 20 // 2 s
+        var i = end - span
+        let earliest = max(0, Int((duration - 30) / blockSeconds))
+        while i > earliest {
+            let avg = blocks[i..<(i + span)].reduce(0, +) / Float(span)
+            if avg >= median * 0.6 { break }
+            i -= 5
+        }
+        return Double(max(i + span, earliest)) * blockSeconds
     }
 
     /// Waveform bars for display.

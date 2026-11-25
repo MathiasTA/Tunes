@@ -84,6 +84,7 @@ enum Badges {
         BadgeDef(id: "stylist", name: "Stylist", icon: "paintpalette.fill", blurb: "Different themes you've tried.", unit: "themes", tiers: [3, 8, 15]),
         BadgeDef(id: "lyricist", name: "Sing Along", icon: "music.mic.circle.fill", blurb: "Times you've opened the lyrics.", unit: "times", tiers: [5, 50, 200]),
         BadgeDef(id: "veteran", name: "Veteran", icon: "calendar.circle.fill", blurb: "Days since your first play.", unit: "days", tiers: [7, 60, 365]),
+        BadgeDef(id: "puzzler", name: "Puzzler", icon: "puzzlepiece.extension.fill", blurb: "Your longest streak of daily games.", unit: "days", tiers: [3, 7, 30]),
     ]
 
     /// Works out every badge's current value. Runs in a few milliseconds even with big histories.
@@ -140,6 +141,7 @@ enum Badges {
             case "stylist": return counters.keys.filter { $0.hasPrefix("theme:") }.count
             case "lyricist": return counters["lyricsOpened"] ?? 0
             case "veteran": return firstPlay.map { cal.dateComponents([.day], from: $0, to: .now).day ?? 0 } ?? 0
+            case "puzzler": return app.prefs.data.games.values.map(\.bestStreak).max() ?? 0
             default: return 0
             }
         }

@@ -80,12 +80,12 @@ struct EQProfile: Codable, Hashable {
 
 enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
     case summary, madeForYou, newFromArtists, charts, recentlyPlayed, recentlyAdded, topArtists, following, onRepeat, trending, newReleases
-    case yourPlaylists, favoriteAlbums, badges, dice
+    case yourPlaylists, favoriteAlbums, badges, dice, songOfDay, songOfWeek, recap, onThisDay
     var id: String { rawValue }
-    /// New sections are on by default, except Badges and Dice (you choose those).
-    var visibleByDefault: Bool { self != .badges && self != .dice }
-    /// The summary card has a fixed look; everything else can change layout (Dice chooses its songs instead).
-    var hasLayouts: Bool { self != .summary && self != .badges && self != .dice }
+    /// New sections are on by default, except a few you choose to turn on.
+    var visibleByDefault: Bool { ![.badges, .dice, .songOfWeek, .onThisDay].contains(self) }
+    /// These have their own fixed look; everything else can change layout (Dice chooses its songs instead).
+    var hasLayouts: Bool { ![.summary, .badges, .dice, .songOfDay, .songOfWeek, .recap, .onThisDay].contains(self) }
     var defaultLayout: HomeLayout {
         switch self {
         case .onRepeat: .numbered
@@ -112,6 +112,10 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .favoriteAlbums: "Your favorite albums right now"
         case .badges: "Your badges"
         case .dice: "Roll the dice"
+        case .songOfDay: "Song of the day"
+        case .songOfWeek: "Song of the week"
+        case .recap: "Your recap"
+        case .onThisDay: "On this day"
         }
     }
     var icon: String {
@@ -131,6 +135,10 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .favoriteAlbums: "square.stack.fill"
         case .badges: "medal.fill"
         case .dice: "dice.fill"
+        case .songOfDay: "sun.max.fill"
+        case .songOfWeek: "calendar.badge.clock"
+        case .recap: "sparkles.rectangle.stack.fill"
+        case .onThisDay: "clock.arrow.circlepath"
         }
     }
 }
@@ -262,6 +270,10 @@ struct PrefsData: Codable, Equatable {
     /// Your birthday (month 0 = not set), celebrated by the Seasons theme.
     var birthdayMonth = 0
     var birthdayDay = 0
+    /// Song of the day picks, by day ("2026-11-25" → song ID), so a song isn't picked twice in 30 days.
+    var songOfDay: [String: Int] = [:]
+    /// Daily game results and streaks.
+    var games: [String: GameRecord] = [:]
     /// Dice block on Home: where its songs come from.
     var diceSource: DiceSource = .anything
     var diceArtist: Artist?
@@ -289,6 +301,8 @@ struct PrefsData: Codable, Equatable {
     var gapless = true
     var crossfade = 0
     var noCrossfadeInAlbums = true
+    /// Beat-matched blends between songs on shuffle and in mixes (albums stay gapless).
+    var smartTransitions = false
 
     // Backup
     var backupBookmark: Data?
@@ -325,6 +339,7 @@ struct PrefsData: Codable, Equatable {
         weatherUseLocation = v(.weatherUseLocation, d.weatherUseLocation); weatherCity = v(.weatherCity, d.weatherCity)
         birthdayMonth = v(.birthdayMonth, d.birthdayMonth); birthdayDay = v(.birthdayDay, d.birthdayDay)
         diceSource = v(.diceSource, d.diceSource)
+        songOfDay = v(.songOfDay, d.songOfDay); games = v(.games, d.games)
         diceArtist = try? c.decodeIfPresent(Artist.self, forKey: .diceArtist)
         dicePlaylistID = try? c.decodeIfPresent(UUID.self, forKey: .dicePlaylistID)
         home = v(.home, d.home); homeCharts = v(.homeCharts, d.homeCharts)
@@ -335,6 +350,7 @@ struct PrefsData: Codable, Equatable {
         lyricsEnabled = v(.lyricsEnabled, d.lyricsEnabled); eq = v(.eq, d.eq); eqEnabled = v(.eqEnabled, d.eqEnabled)
         normalization = v(.normalization, d.normalization); gapless = v(.gapless, d.gapless)
         crossfade = v(.crossfade, d.crossfade); noCrossfadeInAlbums = v(.noCrossfadeInAlbums, d.noCrossfadeInAlbums)
+        smartTransitions = v(.smartTransitions, d.smartTransitions)
         backupBookmark = try? c.decodeIfPresent(Data.self, forKey: .backupBookmark)
         backupFolderName = try? c.decodeIfPresent(String.self, forKey: .backupFolderName)
         autoBackup = v(.autoBackup, d.autoBackup); backupFrequency = v(.backupFrequency, d.backupFrequency)
@@ -680,4 +696,15 @@ enum DiceSource: String, Codable, CaseIterable, Identifiable {
         case .playlist: "music.note.list"
         }
     }
+}
+
+
+/// Results for one game: daily streaks and totals.
+struct GameRecord: Codable, Hashable {
+    var lastDaily = ""
+    var dailyWon = false
+    var streak = 0
+    var bestStreak = 0
+    var played = 0
+    var won = 0
 }

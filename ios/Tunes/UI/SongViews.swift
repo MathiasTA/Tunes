@@ -67,6 +67,7 @@ struct SongMenuView: View {
                     }
                     if downloaded {
                         row("Song stats", "chart.bar") { app.navigate(.songStats(song.id)) }
+                        row("Chart history", "chart.line.uptrend.xyaxis") { app.navigate(.songJourney(song.id)) }
                     }
                     row("Share", "square.and.arrow.up") { app.sheet = .share(shown) }
                     if !app.prefs.data.offline {

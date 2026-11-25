@@ -15,6 +15,9 @@ struct StatsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 WrappedCard()
+                SongOfTheDayCard()
+                SongOfTheWeekCard()
+                OnThisDayCard()
                 Picker("Range", selection: $range.animation(.easeInOut)) {
                     ForEach(StatsRange.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -76,6 +79,8 @@ struct StatsView: View {
                     }
                 }
 
+                ChartsLinkCard()
+
                 if !songs.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Top songs").font(.title3.bold())
@@ -96,6 +101,23 @@ struct StatsView: View {
                     }
                 }
 
+                FunStatsSection(records: recs)
+
+                NavigationLink(value: Route.recaps) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "sparkles.rectangle.stack.fill").font(.title2).foregroundStyle(look.accent).frame(width: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Recaps").font(.headline).foregroundStyle(.primary)
+                            Text("Replay any past week or month").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tertiary)
+                    }
+                    .padding(14)
+                    .background(Surface.card(look), in: RoundedRectangle(cornerRadius: look.radius(16)))
+                }
+                .buttonStyle(PressStyle())
+
                 let genres = stats.topGenres(recs)
                 if !genres.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
@@ -112,6 +134,8 @@ struct StatsView: View {
                         }
                     }
                 }
+
+                GamesSection()
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
@@ -203,6 +227,12 @@ struct SongStatsView: View {
                 if let e = entry { LabeledContent("Downloaded", value: e.addedAt.formatted(date: .abbreviated, time: .omitted)) }
                 let imported = recs.filter { $0.origin == .spotify }.count
                 if imported > 0 { LabeledContent("From Spotify history", value: "\(imported) plays") }
+            }
+.themedRow()
+            Section {
+                NavigationLink(value: Route.songJourney(songID)) {
+                    Label("Chart history", systemImage: "chart.line.uptrend.xyaxis")
+                }
             }
 .themedRow()
             if monthly.count > 1 {

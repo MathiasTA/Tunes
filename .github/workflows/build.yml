@@ -4,7 +4,7 @@ name: Build IPA
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -59,7 +59,9 @@ jobs:
           cp -R ios/build/Build/Products/Release-iphoneos/Tunes.app Payload/
           zip -qry Tunes.ipa Payload
 
+      # Only main publishes a release; the dev branch is just a test build.
       - name: Publish release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}

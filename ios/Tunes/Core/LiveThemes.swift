@@ -19,9 +19,11 @@ enum LiveThemes {
         case .weather: return weather(WeatherWatcher.shared.now, date: date)
         case .seasons: return seasons(date)
         case .pulse:
-            var base = (cover ?? .fallback).palette
-            base.effect = .pulse
-            return base
+            let mood = AppModel.shared.pulseMood
+            let accent = MoodColors.color(mood).mixed(with: .white, by: 0.25)
+            return ThemePalette(colors: [MoodColors.color(max(0, mood - 0.2), darken: 0.8), MoodColors.color(mood, darken: 0.9)],
+                                bar: MoodColors.color(mood, darken: 0.88), scheme: .dark, accent: accent, accentHex: accent.hexString,
+                                effect: .pulse)
         case .moon: return moon(date)
         case .battery: return battery()
         case .streak: return streak(AppModel.shared.streak)
@@ -38,7 +40,8 @@ enum LiveThemes {
         case .moon: return "Moon · \(MoonPhase.name(MoonPhase.at(date)))"
         case .battery:
             let level = UIDevice.current.batteryLevel
-            return level >= 0 ? "Battery · \(Int(level * 100))%" : "Battery"
+            let eco = ProcessInfo.processInfo.isLowPowerModeEnabled ? " · Low Power" : ""
+            return level >= 0 ? "Battery · \(Int(level * 100))%\(eco)" : "Battery"
         case .streak:
             let d = AppModel.shared.streak.current
             return "Streak · \(d) day\(d == 1 ? "" : "s")"
@@ -143,12 +146,21 @@ enum LiveThemes {
         if charging {
             return p(["#03140E", "#062A1D", "#0A3D2A"], bar: "#04170F", glow: ["#22C55E"], accent: "#4ADE80", effect: .charging)
         }
-        if ProcessInfo.processInfo.isLowPowerModeEnabled || level < 0.2 {
-            return p(["#07080B", "#0D0F14", "#14171E"], bar: "#08090C", glow: ["#7F1D1D"], accent: "#F87171")
+        var look: ThemePalette
+        if level < 0.2 {
+            look = p(["#050505", "#0E0606", "#1C0808"], bar: "#070505", glow: ["#DC2626", "#7F1D1D"], accent: "#F87171", effect: .lowBattery)
+        } else if level < 0.6 {
+            look = p(["#1A1405", "#3A2A08", "#5C420C"], bar: "#1C1506", glow: ["#FACC15", "#F59E0B"], accent: "#FDE047")
+        } else {
+            look = p(["#0D1B3D", "#2A2470", "#5B2A86"], bar: "#0F1D42", glow: ["#F472B6", "#22D3EE"], accent: "#F0ABFC")
         }
-        if level < 0.5 { return p(["#0B1220", "#111C30", "#1A2740"], bar: "#0C1322", glow: ["#38BDF8"], accent: "#7DD3FC") }
-        if level < 0.8 { return p(["#0B1A2E", "#12305A", "#1B4C7A"], bar: "#0C1C32", glow: ["#22D3EE", "#A78BFA"], accent: "#67E8F9") }
-        return p(["#0D1B3D", "#2A2470", "#5B2A86"], bar: "#0F1D42", glow: ["#F472B6", "#22D3EE"], accent: "#F0ABFC")
+        // Low Power Mode: the same colors for your level, but dimmer and perfectly still.
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            look.colors = look.colors.map { $0.mixed(with: .black, by: 0.4) }
+            look.glow = look.glow.map { $0.opacity(0.5) }
+            look.effect = .none
+        }
+        return look
     }
 
     static func streak(_ s: StreakInfo) -> ThemePalette {
@@ -159,7 +171,7 @@ enum LiveThemes {
         case 2: return p(["#170D07", "#2A140A", "#3C1A0C"], bar: "#180E08", glow: ["#EA580C"], accent: "#FB923C", effect: .streak(level: 2), fx: fire)
         case 3: return p(["#1A0906", "#331008", "#4A160A"], bar: "#1B0A07", glow: ["#F97316", "#DC2626"], accent: "#F97316", effect: .streak(level: 3), fx: fire)
         case 4: return p(["#1C0505", "#3A0A06", "#5A1208"], bar: "#1D0606", glow: ["#F97316", "#FACC15"], accent: "#FDBA74", effect: .streak(level: 4), fx: fire)
-        default: return p(["#1F0303", "#4A0A04", "#7A1A04"], bar: "#200404", glow: ["#FACC15", "#F97316"], accent: "#FDE047", effect: .streak(level: 5), fx: fire)
+        default: return p(["#240302", "#5A0C03", "#9A2A05"], bar: "#260403", glow: ["#FACC15", "#F97316"], accent: "#FDE047", effect: .streak(level: 5), fx: fire)
         }
     }
 }
@@ -283,5 +295,18 @@ enum MoonPhase {
         case ..<0.78: "Last quarter"
         default: "Waning crescent"
         }
+    }
+}
+
+
+extension Color {
+    /// This color blended toward another (0 = unchanged, 1 = the other color).
+    func mixed(with other: Color, by k: Double) -> Color {
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        UIColor(self).getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        UIColor(other).getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        let t = CGFloat(k)
+        return Color(red: Double(r1 + (r2 - r1) * t), green: Double(g1 + (g2 - g1) * t), blue: Double(b1 + (b2 - b1) * t))
     }
 }

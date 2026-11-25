@@ -37,7 +37,11 @@ final class AppModel {
 
     func coverChanged() {
         checkBadges() // a song just changed: a good moment to check (stats moved on)
-        guard prefs.data.theme == .dynamic || prefs.data.theme == .pulse, let song = player.currentSong else { return }
+        if prefs.data.theme == .pulse, let id = player.currentID {
+            let mood = AnalysisCache.load(id)?.mood ?? 0.5
+            if abs(mood - pulseMood) > 0.01 { withAnimation(.easeInOut(duration: 1.5)) { pulseMood = mood } }
+        }
+        guard prefs.data.theme == .dynamic, let song = player.currentSong else { return }
         Task {
             guard let img = await ImageCache.shared.image(local: song.localArtworkURL, remote: song.artworkURL, maxPixel: 120),
                   let colors = await CoverColors.extract(from: img), player.currentSong?.id == song.id else { return }
@@ -82,6 +86,7 @@ final class AppModel {
         playlists.createDailyMixesIfNeeded()
         playlists.syncHomeCharts(prefs.data.homeCharts)
         library.analyzeMissing()
+        pickSongOfTheDay()
         UIDevice.current.isBatteryMonitoringEnabled = true
         WeatherWatcher.shared.start()
         if prefs.data.autoRemoveUnplayed {
@@ -97,6 +102,7 @@ final class AppModel {
 
     func onForeground() {
         checkBadges(force: true)
+        pickSongOfTheDay()
         Task { await WeatherWatcher.shared.refreshIfNeeded() }
         library.pump()
         Task { await playlists.refreshAll() }
@@ -171,6 +177,63 @@ final class AppModel {
         }
     }
 
+    /// The welcome screen shows for new users, and once more for everyone after the update that added birthdays
+    /// (your name and everything else stay as they are).
+    var needsWelcome: Bool { !prefs.data.onboarded || prefs.data.counters["welcome2"] == nil }
+
+    static func dayKey(_ d: Date = .now) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: d)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    var songOfTheDay: LibraryEntry? { prefs.data.songOfDay[Self.dayKey()].flatMap { library.entry($0) } }
+
+    /// Picks today's song once: liked songs and old favorites you haven't heard lately come first,
+    /// and nothing picked in the last 30 days.
+    func pickSongOfTheDay() {
+        let key = Self.dayKey()
+        if let id = prefs.data.songOfDay[key], library.entry(id) != nil { return }
+        guard !library.entries.isEmpty else { return }
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .now
+        let recentPicks = Set(prefs.data.songOfDay.compactMap { k, v in k >= Self.dayKey(cutoff) ? v : nil })
+        let twoWeeks = Calendar.current.date(byAdding: .day, value: -14, to: .now) ?? .now
+        var plays: [Int: Int] = [:], last: [Int: Date] = [:]
+        for r in stats.records where r.seconds >= StatsStore.playThreshold {
+            plays[r.songID, default: 0] += 1
+            last[r.songID] = r.start
+        }
+        let pool = library.entries.filter { !recentPicks.contains($0.id) }
+        let favorites = pool.filter { e in (e.liked || (plays[e.id] ?? 0) >= 3) && (last[e.id] ?? .distantPast) < twoWeeks }
+        let source = favorites.isEmpty ? pool : favorites
+        var rng = SeededRNG(seed: UInt64(key.replacingOccurrences(of: "-", with: "")) ?? 1)
+        guard let pick = source.randomElement(using: &rng) ?? library.entries.randomElement() else { return }
+        // Keep the last 60 days of picks.
+        let old = Self.dayKey(Calendar.current.date(byAdding: .day, value: -60, to: .now) ?? .now)
+        prefs.data.songOfDay = prefs.data.songOfDay.filter { $0.key >= old }
+        prefs.data.songOfDay[key] = pick.id
+    }
+
+    /// Wrapped for a specific period (a recap), opened from Home or Stats.
+    struct WrappedRequest: Equatable {
+        var interval: DateInterval
+        var name: String
+        var previousName: String
+    }
+    var wrappedRequest: WrappedRequest?
+
+    func openRecap(weekly: Bool, interval: DateInterval? = nil) {
+        guard let i = interval ?? (weekly ? StatsStore.lastWeek() : StatsStore.lastMonth()) else { return }
+        let name = weekly
+            ? "the week of \(i.start.formatted(.dateTime.day().month(.abbreviated)))"
+            : i.start.formatted(.dateTime.month(.wide).year())
+        wrappedRequest = WrappedRequest(interval: i, name: name, previousName: weekly ? "the week before" : "the month before")
+        player.pause()
+        showWrapped = true
+    }
+
+    /// The mood (0 calm … 1 energetic) of the song playing, for Pulse's accent and bars.
+    var pulseMood = 0.5
+
     /// Your listening streak, for the Streak theme (updated with the badge checks).
     var streak = StreakInfo()
 
@@ -221,4 +284,8 @@ enum Route: Hashable {
     case stats
     case settings
     case songStats(Int)
+    case yourCharts
+    case songJourney(Int)
+    case recaps
+    case games
 }

@@ -23,20 +23,35 @@ struct WrappedData {
     let oldest: PlayRecord?
     let personality: Personality
     let records: [PlayRecord]
+    /// A specific period (recaps) instead of the range, with its name.
+    var customName: String?
+    // Little stories (nil when there's not enough to tell).
+    var binge: StatsStore.SongFact?
+    var rideOrDie: StatsStore.SongFact?
+    var comeback: StatsStore.SongFact?
+    var skipped: StatsStore.SongFact?
+    /// The #1 song's rank over the period (#1 at the end, hopefully).
+    var journey: [(date: Date, rank: Int?)] = []
+    /// The same length of time just before, for comparing.
+    var previousTotal: Double = 0
+    var previousPlays = 0
+    var previousName = "the period before"
 
     var periodName: String {
+        if let customName { return customName }
         switch range {
-        case .week: "this week"
-        case .month: "the last 30 days"
-        case .year: "this year"
-        case .all: "all time"
+        case .week: return "this week"
+        case .month: return "the last 30 days"
+        case .year: return "this year"
+        case .all: return "all time"
         }
     }
 
     @MainActor
-    init(range: StatsRange, stats: StatsStore) {
+    init(range: StatsRange, stats: StatsStore, interval: DateInterval? = nil, name: String? = nil, previousName: String? = nil) {
         self.range = range
-        let recs = stats.records(range)
+        customName = name
+        let recs = interval.map { stats.records(in: $0) } ?? stats.records(range)
         records = recs
         total = stats.total(recs)
         plays = stats.plays(recs)
@@ -56,13 +71,37 @@ struct WrappedData {
         // Artists first heard inside the period (for all time: in the last 90 days).
         var first: [Int: Date] = [:]
         for r in stats.records { for a in r.allArtists where first[a.id] == nil { first[a.id] = r.start } }
-        let since = range == .all ? Date.now.addingTimeInterval(-90 * 86_400) : (range.interval?.start ?? .distantPast)
+        let since = interval?.start ?? (range == .all ? Date.now.addingTimeInterval(-90 * 86_400) : (range.interval?.start ?? .distantPast))
         discoveries = stats.topArtists(recs, limit: 200).filter { (first[$0.artist.id] ?? .distantPast) >= since }.prefix(5).map { $0 }
 
         let years = recs.compactMap { r -> (Int, Double)? in r.releaseYear.map { ($0, r.seconds) } }.filter { $0.0 > 1900 }
         let weight = years.reduce(0) { $0 + $1.1 }
         averageYear = weight > 0 ? Int((years.reduce(0) { $0 + Double($1.0) * $1.1 } / weight).rounded()) : nil
         oldest = recs.filter { ($0.releaseYear ?? 0) > 1900 && $0.seconds >= 30 }.min { ($0.releaseYear ?? 0) < ($1.releaseYear ?? 0) }
+
+        binge = stats.binge(recs)
+        rideOrDie = stats.rideOrDie(recs)
+        comeback = stats.comeback(recs)
+        skipped = stats.mostSkipped(recs)
+        let periodStart = interval?.start ?? range.interval?.start ?? recs.first?.start ?? .now
+        let periodEnd = min(interval?.end ?? .now, .now)
+        if let top = topSongs.first {
+            journey = stats.journey(of: top.songID, from: periodStart, to: periodEnd, samples: 10)
+        }
+        if range != .all || interval != nil {
+            let span = periodEnd.timeIntervalSince(periodStart)
+            let prev = stats.records(in: DateInterval(start: periodStart.addingTimeInterval(-span), end: periodStart))
+            previousTotal = stats.total(prev)
+            previousPlays = stats.plays(prev)
+        }
+        if let previousName { self.previousName = previousName } else {
+            switch range {
+            case .week: self.previousName = "the week before"
+            case .month: self.previousName = "the 30 days before"
+            case .year: self.previousName = "last year, same time"
+            case .all: break
+            }
+        }
 
         let topShare = (topArtists.first?.seconds ?? 0) / max(total, 1)
         let repeatRatio = Double(plays) / Double(max(songCount, 1))
@@ -86,7 +125,7 @@ struct WrappedData {
 // MARK: - Slides
 
 enum WrappedSlide: Int, CaseIterable, Identifiable {
-    case intro, minutes, biggestDay, quiz, topArtist, topSongs, genres, discoveries, clock, personality, timeMachine, streak, summary
+    case intro, minutes, biggestDay, quiz, topArtist, topSongs, journey, obsessed, genres, discoveries, rideOrDie, clock, personality, comeback, timeMachine, streak, compare, skipped, summary
     var id: Int { rawValue }
     var duration: Double { self == .topSongs || self == .summary ? 11 : 8 }
 }
@@ -125,6 +164,8 @@ struct WrappedView: View {
     @State private var quizAnswered = false
     @State private var showShare = false
     @State private var muted = false
+    /// Set when Wrapped was opened as a recap for a specific week or month.
+    @State private var request: AppModel.WrappedRequest?
 
     private var slide: WrappedSlide { slides.indices.contains(index) ? slides[index] : .intro }
     private var theme: WrappedTheme { WrappedTheme.all[(index + themeOffset) % WrappedTheme.all.count] }
@@ -177,7 +218,13 @@ struct WrappedView: View {
         .onAppear {
             app.bump("wrappedOpened")
             app.player.pause()
-            load(.year)
+            if let req = app.wrappedRequest {
+                app.wrappedRequest = nil
+                request = req
+                load(.week)
+            } else {
+                load(.year)
+            }
         }
         .onDisappear { app.wrappedAudio.stop() }
         .task { await tick() }
@@ -191,7 +238,7 @@ struct WrappedView: View {
     @ViewBuilder
     private func slideView(_ d: WrappedData) -> some View {
         switch slide {
-        case .intro: IntroSlide(data: d, range: range) { r in load(r) }
+        case .intro: IntroSlide(data: d, range: range) { r in request = nil; load(r) }
         case .minutes: MinutesSlide(data: d)
         case .biggestDay: BiggestDaySlide(data: d)
         case .quiz: QuizSlide(data: d, answered: $quizAnswered)
@@ -203,6 +250,16 @@ struct WrappedView: View {
         case .personality: PersonalitySlide(data: d)
         case .timeMachine: TimeMachineSlide(data: d)
         case .streak: StreakSlide(data: d)
+        case .journey: JourneySlide(data: d)
+        case .obsessed: FactSlide(kicker: "Obsessed", fact: d.binge, big: { "\($0.value) times in a row" },
+                                  line: { "You played \($0.title) by \($0.artist) back to back, \($0.value) times." })
+        case .rideOrDie: FactSlide(kicker: "Ride or die", fact: d.rideOrDie, big: { $0.title },
+                                   line: { "You came back to it on \($0.value) different days. \($0.artist) would be proud." })
+        case .comeback: FactSlide(kicker: "The comeback", fact: d.comeback, big: { $0.title },
+                                  line: { "After \($0.value) days away, you found your way back to it." })
+        case .skipped: FactSlide(kicker: "Skipped, sorry", fact: d.skipped, big: { $0.title },
+                                 line: { "You skipped it \($0.value) times. It's not the song. Okay, maybe it's the song." })
+        case .compare: CompareSlide(data: d)
         case .summary: SummarySlide(data: d) { setPaused(true); showShare = true }
         }
     }
@@ -284,18 +341,24 @@ struct WrappedView: View {
 
     private func load(_ r: StatsRange) {
         range = r
-        let d = WrappedData(range: r, stats: app.stats)
+        let d = WrappedData(range: r, stats: app.stats, interval: request?.interval, name: request?.name, previousName: request?.previousName)
         data = d
         var list: [WrappedSlide] = [.intro, .minutes]
         if d.biggest != nil { list.append(.biggestDay) }
         if d.topSongs.count >= 4 { list.append(.quiz) }
         if !d.topArtists.isEmpty { list.append(.topArtist) }
         if !d.topSongs.isEmpty { list.append(.topSongs) }
+        if d.journey.compactMap(\.rank).count >= 3 { list.append(.journey) }
+        if d.binge != nil { list.append(.obsessed) }
         if !d.genres.isEmpty { list.append(.genres) }
         if !d.discoveries.isEmpty { list.append(.discoveries) }
+        if d.rideOrDie != nil { list.append(.rideOrDie) }
         if d.total > 0 { list.append(contentsOf: [.clock, .personality]) }
+        if d.comeback != nil { list.append(.comeback) }
         if d.averageYear != nil { list.append(.timeMachine) }
         if d.streak.days >= 2 { list.append(.streak) }
+        if d.previousTotal > 0 { list.append(.compare) }
+        if d.skipped != nil { list.append(.skipped) }
         list.append(.summary)
         slides = list
         quizAnswered = false
@@ -350,6 +413,12 @@ struct WrappedView: View {
         take(.personality, Array(top.prefix(12)))
         take(.timeMachine, [d.oldest?.songID].compactMap { $0 })
         take(.streak, Array(top.dropFirst(2)))
+        take(.obsessed, [d.binge?.songID].compactMap { $0 })
+        take(.rideOrDie, [d.rideOrDie?.songID].compactMap { $0 })
+        take(.comeback, [d.comeback?.songID].compactMap { $0 })
+        take(.skipped, Array(top.dropFirst(3).prefix(6)))
+        take(.compare, Array(top.prefix(10)))
+        take(.journey, Array(top.dropFirst(1).prefix(5)))
         take(.summary, Array(top.prefix(6)))
         songFor = map
     }
@@ -806,5 +875,119 @@ private struct SummarySlide: View {
             .appear(0.65)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+
+// MARK: - Newer slides
+
+/// One song with a little story about it (Obsessed, Ride or die, The comeback, Skipped).
+private struct FactSlide: View {
+    let kicker: String
+    let fact: StatsStore.SongFact?
+    let big: (StatsStore.SongFact) -> String
+    let line: (StatsStore.SongFact) -> String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Spacer()
+            Kicker(text: kicker).appear(0.1)
+            if let f = fact {
+                Artwork(url: f.artworkURL, local: Paths.songArtwork(f.songID), size: 200, seed: f.songID)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+                    .rotationEffect(.degrees(-3))
+                    .appear(0.3)
+                Big(text: big(f), size: 40).appear(0.5)
+                Text(line(f)).font(.title3.weight(.semibold)).appear(0.8)
+            }
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Your #1 song's rank line, drawn as it climbs to the top.
+private struct JourneySlide: View {
+    let data: WrappedData
+    @State private var drawn: CGFloat = 0
+
+    var body: some View {
+        let points = data.journey.compactMap { p in p.rank.map { (p.date, $0) } }
+        let worst = max(points.map(\.1).max() ?? 10, 5)
+        VStack(alignment: .leading, spacing: 14) {
+            Spacer()
+            Kicker(text: "Your #1's journey").appear(0.1)
+            Big(text: data.topSongs.first?.title ?? "", size: 38).appear(0.3)
+            if let start = points.first?.1 {
+                Text(start == 1 ? "It was #1 from the start, and it never let go." : "It started at #\(start) and climbed all the way to the top.")
+                    .font(.title3.weight(.semibold)).appear(0.5)
+            }
+            GeometryReader { g in
+                let w = g.size.width, h = g.size.height
+                let inner = max(1, w - 36)
+                let pts: [CGPoint] = points.enumerated().map { i, p in
+                    CGPoint(x: 36 + (points.count > 1 ? inner * CGFloat(i) / CGFloat(points.count - 1) : inner / 2),
+                            y: h * CGFloat(p.1 - 1) / CGFloat(worst - 1))
+                }
+                ZStack(alignment: .topLeading) {
+                    ForEach([1, worst], id: \.self) { r in
+                        Text("#\(r)").font(.caption.weight(.heavy)).opacity(0.6)
+                            .position(x: 14, y: h * CGFloat(r - 1) / CGFloat(worst - 1))
+                    }
+                    Path { p in
+                        guard let f = pts.first else { return }
+                        p.move(to: f)
+                        for q in pts.dropFirst() { p.addLine(to: q) }
+                    }
+                    .trim(from: 0, to: drawn)
+                    .stroke(style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    if let last = pts.last, drawn >= 1 {
+                        Circle().frame(width: 16, height: 16).position(last)
+                            .transition(.scale)
+                    }
+                }
+            }
+            .frame(height: 220)
+            .appear(0.6)
+            Spacer()
+        }
+        .onAppear { withAnimation(.easeInOut(duration: 2.6).delay(0.8)) { drawn = 1 } }
+    }
+}
+
+/// How this period compares with the one before.
+private struct CompareSlide: View {
+    let data: WrappedData
+
+    var body: some View {
+        let change = data.previousTotal > 0 ? (data.total - data.previousTotal) / data.previousTotal : 0
+        let pct = Int((change * 100).rounded())
+        VStack(alignment: .leading, spacing: 16) {
+            Spacer()
+            Kicker(text: "Compared with \(data.previousName)").appear(0.1)
+            Big(text: pct >= 0 ? "+\(pct)%" : "\(pct)%", size: 72).appear(0.3)
+            Text(pct >= 5 ? "More music than before. You're on a roll." : pct <= -5 ? "A little quieter than before. That's okay." : "About the same as before. Steady.")
+                .font(.title3.weight(.semibold)).appear(0.5)
+            VStack(alignment: .leading, spacing: 10) {
+                row("Minutes", now: Int(data.total / 60), before: Int(data.previousTotal / 60))
+                row("Plays", now: data.plays, before: data.previousPlays)
+            }
+            .padding(18)
+            .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
+            .appear(0.8)
+            Spacer()
+        }
+    }
+
+    private func row(_ label: String, now: Int, before: Int) -> some View {
+        HStack {
+            Text(label).font(.headline)
+            Spacer()
+            Text("\(before)").opacity(0.6)
+            Image(systemName: "arrow.right").font(.caption.weight(.bold)).opacity(0.6)
+            Text("\(now)").font(.title3.weight(.heavy))
+        }
     }
 }

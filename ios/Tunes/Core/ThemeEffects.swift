@@ -17,7 +17,7 @@ enum ThemeEffect: Equatable {
     // Other alive themes
     case moon(phase: Double)
     case pulse
-    case charging
+    case charging, lowBattery
     case streak(level: Int)
 }
 
@@ -32,41 +32,86 @@ struct EffectLayer: View {
         let moving = !still && !reduceMotion && AppModel.shared.prefs.data.animations
         TimelineView(.animation(minimumInterval: 1 / 30, paused: !moving)) { ctx in
             let t = moving ? ctx.date.timeIntervalSinceReferenceDate : 1000
-            let level = palette.effect == .pulse ? PulseMeter.shared.level(at: ctx.date, moving: moving) : 0
+            let pulse = palette.effect == .pulse ? PulseMeter.shared.frame(at: ctx.date, moving: moving) : PulseFrame()
             Canvas { gc, size in
-                EffectPainter.draw(palette, in: &gc, size: size, t: t, level: level)
+                EffectPainter.draw(palette, in: &gc, size: size, t: t, pulse: pulse)
             }
         }
         .allowsHitTesting(false)
     }
 }
 
-/// How loud the song is right now, smoothed so Pulse breathes with phrases rather than flickering on every beat.
+/// What Pulse draws from: how loud the song is (smoothed), where the beat is, how fast the colors orbit
+/// (set by the tempo), and the song's mood, which picks the colors. Everything eases, nothing flashes.
+struct PulseFrame {
+    var level: Double = 0.35
+    var orbit: Double = 0
+    var sway: Double = 0
+    var beat: Double = 0
+    var mood: Double = 0.5
+}
+
 @MainActor
 final class PulseMeter {
     static let shared = PulseMeter()
     private var songID: Int?
-    private var blocks: [Float] = []
-    private var smooth: Double = 0
+    private var analysis: AudioAnalysis?
+    private var frame = PulseFrame()
+    private var speed: Double = 0.08
     private var last = Date.distantPast
 
-    func level(at date: Date, moving: Bool) -> Double {
+    func frame(at date: Date, moving: Bool) -> PulseFrame {
         let p = AppModel.shared.player
-        guard moving else { return 0.35 }
         if p.currentID != songID {
             songID = p.currentID
-            blocks = songID.flatMap { AnalysisCache.load($0)?.blocks } ?? []
+            analysis = songID.flatMap { AnalysisCache.load($0) }
         }
-        var target = 0.0
-        if p.isPlaying, !blocks.isEmpty {
+        let dt = min(0.1, max(0, date.timeIntervalSince(last)))
+        last = date
+        let a = analysis
+        let targetMood = a?.mood ?? 0.5
+        guard moving else {
+            frame.mood = targetMood
+            return frame
+        }
+        var loud = 0.0
+        if p.isPlaying, let blocks = a?.blocks, !blocks.isEmpty {
             let i = Int(p.position / AudioAnalysis.blockSeconds)
             let lo = max(0, i - 4), hi = min(blocks.count - 1, i + 4)
-            if lo <= hi { target = Double(blocks[lo...hi].reduce(0, +)) / Double(hi - lo + 1) }
+            if lo <= hi { loud = Double(blocks[lo...hi].reduce(0, +)) / Double(hi - lo + 1) }
         }
-        let dt = min(0.2, max(0, date.timeIntervalSince(last)))
-        last = date
-        smooth += (target - smooth) * min(1, dt * 1.5)
-        return smooth
+        frame.level += (loud - frame.level) * min(1, dt * 1.2)
+        frame.mood += (targetMood - frame.mood) * min(1, dt * 0.8)
+        // Orbit speed from the tempo: slow songs drift, fast songs flow. Paused songs come to a gentle rest.
+        let bpm = a?.bpm ?? 100
+        let targetSpeed = p.isPlaying ? 0.05 + 0.35 * pow(max(0, (bpm - 55) / 130), 1.4) * (0.6 + 0.4 * frame.level) : 0.02
+        speed += (targetSpeed - speed) * min(1, dt * 0.7)
+        frame.orbit += speed * dt
+        // A soft sway in time with the beat (position only, never brightness).
+        if p.isPlaying, let len = a?.beatLength {
+            frame.beat = (p.position - (a?.beatOffset ?? 0)) / len
+            let target = sin(frame.beat * .pi) * (0.02 + 0.03 * frame.level)
+            frame.sway += (target - frame.sway) * min(1, dt * 10)
+        } else {
+            frame.sway += (0 - frame.sway) * min(1, dt * 2)
+        }
+        return frame
+    }
+}
+
+/// The colors Pulse uses for a mood: deep blue and violet when calm, pink and magenta in between,
+/// orange, red and gold when energetic.
+enum MoodColors {
+    static let stops: [(Double, Double, Double)] = [
+        (0x1E, 0x3A, 0x8A), (0x7C, 0x3A, 0xED), (0xC0, 0x26, 0xD3), (0xDB, 0x27, 0x77),
+        (0xF9, 0x73, 0x16), (0xDC, 0x26, 0x26), (0xFA, 0xCC, 0x15),
+    ]
+    static func color(_ mood: Double, darken: Double = 0) -> Color {
+        let x = min(0.999, max(0, mood)) * Double(stops.count - 1)
+        let i = Int(x), k = x - Double(i)
+        let a = stops[i], b = stops[i + 1]
+        func ch(_ u: Double, _ v: Double) -> Double { (u + (v - u) * k) / 255 * (1 - darken) }
+        return Color(red: ch(a.0, b.0), green: ch(a.1, b.1), blue: ch(a.2, b.2))
     }
 }
 
@@ -80,7 +125,7 @@ enum EffectPainter {
         return [p.accent ?? .white]
     }
 
-    static func draw(_ p: ThemePalette, in gc: inout GraphicsContext, size s: CGSize, t: Double, level: Double) {
+    static func draw(_ p: ThemePalette, in gc: inout GraphicsContext, size s: CGSize, t: Double, pulse: PulseFrame) {
         let cs = colors(p)
         let accent = p.accent ?? .white
         switch p.effect {
@@ -115,10 +160,19 @@ enum EffectPainter {
         case .lucia: candles(&gc, s, t, count: 7, lit: 7); starsField(&gc, s, t, count: 30, shooting: false)
         case .balloons: balloons(&gc, s, t, cs); confetti(&gc, s, t, cs, count: 24)
         case .moon(let phase): starsField(&gc, s, t, count: 60, shooting: false); moon(&gc, s, phase: phase)
-        case .pulse: pulse(&gc, s, t, level: level, a: accent, b: p.glow.first ?? accent)
+        case .pulse: Self.pulse(&gc, s, pulse)
         case .charging: charging(&gc, s, t, accent)
+        case .lowBattery:
+            // A slow, low red breath along the bottom.
+            let q = 0.5 + 0.5 * sin(t * 1.2)
+            let c = CGPoint(x: s.width / 2, y: s.height * 1.05)
+            let r = s.width * 0.95
+            gc.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                    with: .radialGradient(Gradient(colors: [Color(hex: "#DC2626").opacity(0.18 + 0.1 * q), .clear]), center: c, startRadius: 0, endRadius: r))
         case .streak(let level):
-            if level > 0 {
+            if level >= 5 {
+                inferno(&gc, s, t)
+            } else if level > 0 {
                 bottomGlow(&gc, s, t, cs.first ?? .orange, strength: Double(level) / 5)
                 embers(&gc, s, t, cs, count: 6 * level)
             }
@@ -763,17 +817,77 @@ enum EffectPainter {
         }
     }
 
-    /// Pulse: two soft glows that swell gently with the music.
-    static func pulse(_ gc: inout GraphicsContext, _ s: CGSize, _ t: Double, level: Double, a: Color, b: Color) {
-        let breathe = 0.5 + 0.5 * sin(t * 0.4)
-        let c1 = CGPoint(x: s.width * (0.3 + 0.1 * sin(t * 0.07)), y: s.height * (0.28 + 0.05 * cos(t * 0.09)))
-        let r1 = s.width * (0.75 + 0.25 * level)
-        gc.fill(Path(ellipseIn: CGRect(x: c1.x - r1, y: c1.y - r1, width: r1 * 2, height: r1 * 2)),
-                with: .radialGradient(Gradient(colors: [a.opacity(0.08 + 0.2 * level + 0.03 * breathe), .clear]), center: c1, startRadius: 0, endRadius: r1))
-        let c2 = CGPoint(x: s.width * (0.75 + 0.08 * cos(t * 0.06)), y: s.height * (0.78 + 0.04 * sin(t * 0.08)))
-        let r2 = s.width * (0.65 + 0.2 * level)
-        gc.fill(Path(ellipseIn: CGRect(x: c2.x - r2, y: c2.y - r2, width: r2 * 2, height: r2 * 2)),
-                with: .radialGradient(Gradient(colors: [b.opacity(0.06 + 0.15 * level), .clear]), center: c2, startRadius: 0, endRadius: r2))
+    /// Pulse: mood-colored shapes orbiting at the song's tempo and swaying with the beat.
+    static func pulse(_ gc: inout GraphicsContext, _ s: CGSize, _ f: PulseFrame) {
+        let base = MoodColors.color(f.mood)
+        let hot = MoodColors.color(min(1, f.mood + 0.15))
+        let deep = MoodColors.color(max(0, f.mood - 0.35))
+        gc.fill(Path(CGRect(origin: .zero, size: s)),
+                with: .linearGradient(Gradient(colors: [MoodColors.color(max(0, f.mood - 0.2), darken: 0.8), MoodColors.color(f.mood, darken: 0.9)]),
+                                      startPoint: .zero, endPoint: CGPoint(x: s.width, y: s.height)))
+        let blobs: [(Color, Double, Double, Double, Double, Double, Double, Double)] = [
+            (base, 0.75, 0.35, 0.30, 0.18, 0.10, 1.0, 0),
+            (hot, 0.62, 0.68, 0.72, 0.16, 0.12, -0.8, 2),
+            (deep, 0.55, 0.60, 0.40, 0.22, 0.18, 0.6, 4),
+        ]
+        let a0 = 0.10 + 0.16 * f.level
+        for (i, b) in blobs.enumerated() {
+            let ang = f.orbit * 2 * .pi * b.6 + b.7
+            let x = (b.2 + cos(ang) * b.4 + (i % 2 == 1 ? -f.sway : f.sway)) * s.width
+            let y = (b.3 + sin(ang) * b.5 + (i == 2 ? f.sway * 0.8 : 0)) * s.height
+            let r = s.width * (b.1 + 0.15 * f.level)
+            gc.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
+                    with: .radialGradient(Gradient(colors: [b.0.opacity(a0 + (i == 0 ? 0.1 : 0.05)), .clear]),
+                                          center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r))
+        }
+        for k in 0..<3 {
+            let kk = Double(k)
+            var p = Path()
+            var x = 0.0
+            while x <= s.width {
+                let y = s.height * (0.55 + kk * 0.08) + sin(x / (55 + kk * 14) + f.orbit * 2 * .pi * (1 + kk * 0.3)) * 14 + sin(f.beat * .pi + kk) * 3
+                if x == 0 { p.move(to: CGPoint(x: x, y: y)) } else { p.addLine(to: CGPoint(x: x, y: y)) }
+                x += 6
+            }
+            gc.stroke(p, with: .color(hot.mixed(with: .white, by: 0.2).opacity(0.06 + 0.05 * f.level)), lineWidth: 1.2)
+        }
+    }
+
+    /// A 100+ day streak: real flames, a big heat glow, a storm of embers and a faint heat shimmer.
+    static func inferno(_ gc: inout GraphicsContext, _ s: CGSize, _ t: Double) {
+        let c = CGPoint(x: s.width / 2, y: s.height * 1.1)
+        let r = s.width * 1.3
+        gc.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                with: .radialGradient(Gradient(colors: [Color(hex: "#FACC15").opacity(0.25 + 0.1 * sin(t * 1.7)), .clear]), center: c, startRadius: 0, endRadius: r))
+        bottomGlow(&gc, s, t, Color(hex: "#F97316"), strength: 1)
+        let layers: [(Color, Color)] = [(Color(hex: "#FACC15"), Color(hex: "#F97316")), (Color(hex: "#F97316"), Color(hex: "#DC2626")), (Color(hex: "#FDE68A"), Color(hex: "#FBBF24"))]
+        for (layer, cols) in layers.enumerated() {
+            let n = 9
+            let base = s.height * 1.01
+            let hh = s.height * (0.16 + 0.05 * Double(layer))
+            for i in 0..<n {
+                let k = Double(i)
+                let cx = (k + 0.5) / Double(n) * s.width + sin(t * 1.3 + k) * 4
+                let flick = 0.65 + 0.35 * sin(t * (5 + Double(layer)) + k * 2.1) * sin(t * 3.1 + k)
+                let top = base - hh * flick * (1 + 0.3 * sin(k * 1.7))
+                let ww = s.width / Double(n) * 0.9
+                var p = Path()
+                p.move(to: CGPoint(x: cx - ww, y: base))
+                p.addQuadCurve(to: CGPoint(x: cx + sin(t * 4 + k) * 5, y: top), control: CGPoint(x: cx - ww * 0.4, y: base - hh * 0.5))
+                p.addQuadCurve(to: CGPoint(x: cx + ww, y: base), control: CGPoint(x: cx + ww * 0.4, y: base - hh * 0.5))
+                gc.fill(p, with: .linearGradient(Gradient(colors: [cols.0.opacity(0.55 - 0.12 * Double(layer)), cols.1.opacity(0)]),
+                                                 startPoint: CGPoint(x: 0, y: base), endPoint: CGPoint(x: 0, y: top)))
+            }
+        }
+        for k in 0..<10 {
+            let y0 = s.height * (0.55 + Double(k) * 0.035)
+            var p = Path()
+            var x = 0.0
+            p.move(to: CGPoint(x: 0, y: y0))
+            while x <= s.width { p.addLine(to: CGPoint(x: x, y: y0 + sin(x / 14 + t * 3 + Double(k)) * 2)); x += 6 }
+            gc.stroke(p, with: .color(Color(hex: "#FFC878").opacity(0.05)), lineWidth: 1)
+        }
+        embers(&gc, s, t, [Color(hex: "#FDE68A"), Color(hex: "#FBBF24"), Color(hex: "#F97316"), .white], count: 70)
     }
 
     /// Battery while charging: a calm green glow rising from the bottom, with a few motes.
