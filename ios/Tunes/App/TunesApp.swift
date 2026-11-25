@@ -11,15 +11,20 @@ struct TunesApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(app)
-                .environment(\.look, app.prefs.look)
-                .tint(app.prefs.accent)
-                .toggleStyle(TunesToggleStyle())
-                .preferredColorScheme(app.prefs.colorScheme)
-                .dynamicTypeSize(app.prefs.data.textSize.dynamicType)
-                .transaction { t in if !app.prefs.data.animations { t.animation = nil } }
-                .onAppear { app.onLaunch() }
+            // Re-checked every minute, so Horizon follows the time of day.
+            TimelineView(.everyMinute) { ctx in
+                let look = app.prefs.look(at: ctx.date, cover: app.coverColors)
+                RootView()
+                    .environment(app)
+                    .environment(\.look, look)
+                    .tint(look.accent)
+                    .toggleStyle(TunesToggleStyle())
+                    .appFont(app.prefs.data.font)
+                    .preferredColorScheme(app.prefs.colorScheme(for: look))
+                    .dynamicTypeSize(app.prefs.data.textSize.dynamicType)
+                    .transaction { t in if !app.prefs.data.animations { t.animation = nil } }
+            }
+            .onAppear { app.onLaunch() }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -86,6 +91,7 @@ struct RootView: View {
                 .environment(\.look, look)
                 .tint(look.accent)
                 .toggleStyle(TunesToggleStyle())
+                .appFont(app.prefs.data.font)
         }
         .fullScreenCover(isPresented: Binding(get: { !app.prefs.data.onboarded }, set: { _ in })) {
             WelcomeView().environment(app).environment(\.look, look).tint(look.accent)
@@ -150,6 +156,7 @@ extension View {
             case .artist(let a): ArtistView(artist: a)
             case .artistMore(let a): ArtistMoreView(artist: a)
             case .discography(let a): DiscographyView(artist: a)
+            case .badges: BadgesView()
             case .album(let a): AlbumView(album: a)
             case .playlist(let id): PlaylistView(playlistID: id)
             case .liked: LikedSongsView()
@@ -192,7 +199,7 @@ private struct MiniPlayerSpace: ViewModifier {
     @Environment(AppModel.self) private var app
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: (app.player.currentSong != nil ? 72 : 0)
+            Color.clear.frame(height: (app.player.currentSong != nil ? app.prefs.data.miniPlayerStyle.height : 0)
                 + (DownloadsBar.isVisible(app.library) ? 58 : 0))
         }
     }

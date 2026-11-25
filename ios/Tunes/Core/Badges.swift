@@ -1,0 +1,204 @@
+import SwiftUI
+
+/// Bronze, silver and gold. Badges are just for showing off: they don't unlock anything else.
+enum BadgeTier: Int, Comparable, CaseIterable {
+    case none = 0, bronze, silver, gold
+    static func < (a: BadgeTier, b: BadgeTier) -> Bool { a.rawValue < b.rawValue }
+
+    var label: String {
+        switch self {
+        case .none: "Locked"
+        case .bronze: "Bronze"
+        case .silver: "Silver"
+        case .gold: "Gold"
+        }
+    }
+
+    /// Metal colors: highlight, mid, shadow.
+    var metal: [Color] {
+        switch self {
+        case .none: [Color(white: 0.45), Color(white: 0.3), Color(white: 0.2)]
+        case .bronze: [Color(hex: "#F3C08B"), Color(hex: "#C47A3A"), Color(hex: "#6E3B14")]
+        case .silver: [Color(hex: "#FFFFFF"), Color(hex: "#C3C8D0"), Color(hex: "#6B7280")]
+        case .gold: [Color(hex: "#FFF4B0"), Color(hex: "#F5C04A"), Color(hex: "#9A6A00")]
+        }
+    }
+}
+
+/// One badge: what it counts, and how much is needed for bronze, silver and gold.
+struct BadgeDef: Identifiable {
+    let id: String
+    let name: String
+    let icon: String
+    let blurb: String
+    let unit: String
+    let tiers: [Int]
+
+    func tier(for value: Int) -> BadgeTier {
+        if value >= tiers[2] { return .gold }
+        if value >= tiers[1] { return .silver }
+        if value >= tiers[0] { return .bronze }
+        return .none
+    }
+
+    /// The next goal, or nil once gold.
+    func next(after value: Int) -> Int? { tiers.first { value < $0 } }
+}
+
+struct BadgeStatus: Identifiable {
+    let def: BadgeDef
+    let value: Int
+    var id: String { def.id }
+    var tier: BadgeTier { def.tier(for: value) }
+    var progressToNext: Double {
+        guard let next = def.next(after: value) else { return 1 }
+        let prev = def.tiers.last { $0 <= value } ?? 0
+        return Double(value - prev) / Double(max(1, next - prev))
+    }
+}
+
+enum Badges {
+    static let all: [BadgeDef] = [
+        BadgeDef(id: "listener", name: "Listener", icon: "headphones", blurb: "Hours of music listened in total.", unit: "hours", tiers: [10, 100, 500]),
+        BadgeDef(id: "marathon", name: "Marathon", icon: "figure.run", blurb: "Minutes listened in a single day.", unit: "minutes", tiers: [120, 300, 600]),
+        BadgeDef(id: "streak", name: "On a Roll", icon: "flame.fill", blurb: "Days in a row with music.", unit: "days", tiers: [7, 30, 100]),
+        BadgeDef(id: "nightOwl", name: "Night Owl", icon: "moon.stars.fill", blurb: "Songs played between midnight and 4 am.", unit: "songs", tiers: [25, 150, 500]),
+        BadgeDef(id: "earlyBird", name: "Early Bird", icon: "sunrise.fill", blurb: "Songs played between 5 and 8 am.", unit: "songs", tiers: [25, 150, 500]),
+        BadgeDef(id: "explorer", name: "Explorer", icon: "safari.fill", blurb: "Different artists you've listened to.", unit: "artists", tiers: [25, 100, 300]),
+        BadgeDef(id: "superfan", name: "Superfan", icon: "star.circle.fill", blurb: "Hours spent with your favorite artist.", unit: "hours", tiers: [5, 25, 100]),
+        BadgeDef(id: "onRepeat", name: "On Repeat", icon: "repeat.circle.fill", blurb: "Plays of your most played song.", unit: "plays", tiers: [25, 100, 250]),
+        BadgeDef(id: "collector", name: "Collector", icon: "square.stack.3d.up.fill", blurb: "Songs in your library.", unit: "songs", tiers: [50, 250, 1000]),
+        BadgeDef(id: "curator", name: "Curator", icon: "music.note.list", blurb: "Playlists you've made.", unit: "playlists", tiers: [3, 10, 25]),
+        BadgeDef(id: "heartEyes", name: "Heart Eyes", icon: "heart.circle.fill", blurb: "Songs you've liked.", unit: "likes", tiers: [25, 100, 500]),
+        BadgeDef(id: "albumLover", name: "Album Lover", icon: "opticaldisc.fill", blurb: "Albums you've played at least 5 songs from.", unit: "albums", tiers: [5, 25, 100]),
+        BadgeDef(id: "genreHopper", name: "Genre Hopper", icon: "shuffle.circle.fill", blurb: "Different genres you've played.", unit: "genres", tiers: [5, 10, 20]),
+        BadgeDef(id: "timeTraveler", name: "Time Traveler", icon: "clock.arrow.2.circlepath", blurb: "Decades your music comes from.", unit: "decades", tiers: [3, 5, 7]),
+        BadgeDef(id: "follower", name: "Loyal Fan", icon: "person.2.fill", blurb: "Artists you follow.", unit: "artists", tiers: [5, 25, 100]),
+        BadgeDef(id: "digger", name: "Crate Digger", icon: "shippingbox.fill", blurb: "Songs you've imported yourself, from YouTube or files.", unit: "songs", tiers: [1, 10, 50]),
+        BadgeDef(id: "mover", name: "Moving In", icon: "arrow.right.arrow.left.circle.fill", blurb: "Songs brought over from Spotify playlists.", unit: "songs", tiers: [25, 100, 500]),
+        BadgeDef(id: "historian", name: "Historian", icon: "books.vertical.fill", blurb: "Plays imported from your Spotify history.", unit: "plays", tiers: [1000, 10000, 50000]),
+        BadgeDef(id: "wrapped", name: "Wrapped Up", icon: "gift.fill", blurb: "Times you've watched your Wrapped.", unit: "times", tiers: [1, 5, 20]),
+        BadgeDef(id: "sharer", name: "Spread the Word", icon: "square.and.arrow.up.circle.fill", blurb: "Songs you've shared.", unit: "shares", tiers: [1, 10, 50]),
+        BadgeDef(id: "dj", name: "DJ", icon: "dial.medium.fill", blurb: "Songs you've added to the queue.", unit: "songs", tiers: [10, 100, 500]),
+        BadgeDef(id: "scratcher", name: "Scratch Master", icon: "record.circle.fill", blurb: "Times you've spun the vinyl player by hand.", unit: "scratches", tiers: [1, 25, 100]),
+        BadgeDef(id: "stylist", name: "Stylist", icon: "paintpalette.fill", blurb: "Different themes you've tried.", unit: "themes", tiers: [3, 8, 15]),
+        BadgeDef(id: "lyricist", name: "Sing Along", icon: "music.mic.circle.fill", blurb: "Times you've opened the lyrics.", unit: "times", tiers: [5, 50, 200]),
+        BadgeDef(id: "veteran", name: "Veteran", icon: "calendar.circle.fill", blurb: "Days since your first play.", unit: "days", tiers: [7, 60, 365]),
+    ]
+
+    /// Works out every badge's current value. Runs in a few milliseconds even with big histories.
+    @MainActor
+    static func evaluate() -> [BadgeStatus] {
+        let app = AppModel.shared
+        let stats = app.stats, lib = app.library
+        let all = stats.records
+        let counters = app.prefs.data.counters
+        let cal = Calendar.current
+
+        var night = 0, early = 0, spotify = 0
+        var artists = Set<Int>(), genres = Set<String>(), decades = Set<Int>()
+        var albumSongs: [Int: Set<Int>] = [:]
+        for r in all {
+            for a in r.allArtists { artists.insert(a.id) }
+            if r.origin == .spotify { spotify += 1 }
+            if let g = r.genre { genres.insert(g) }
+            if let y = r.releaseYear, y > 1900 { decades.insert(y / 10) }
+            if r.seconds >= 30 {
+                let h = cal.component(.hour, from: r.start)
+                if h < 4 { night += 1 } else if h >= 5 && h < 8 { early += 1 }
+            }
+            if let album = lib.entry(r.songID)?.song.album, album.id > 0 {
+                albumSongs[album.id, default: []].insert(r.songID)
+            }
+        }
+        let firstPlay = all.map(\.start).min()
+
+        func value(_ id: String) -> Int {
+            switch id {
+            case "listener": return Int(stats.total(all) / 3600)
+            case "marathon": return Int((stats.biggestDay(all)?.seconds ?? 0) / 60)
+            case "streak": return stats.longestStreak(all).days
+            case "nightOwl": return night
+            case "earlyBird": return early
+            case "explorer": return artists.count
+            case "superfan": return Int((stats.topArtists(all, limit: 1).first?.seconds ?? 0) / 3600)
+            case "onRepeat": return stats.topSongs(all, limit: 1).first?.plays ?? 0
+            case "collector": return lib.entries.count
+            case "curator": return app.playlists.manual.count
+            case "heartEyes": return lib.liked.count
+            case "albumLover": return albumSongs.values.filter { $0.count >= 5 }.count
+            case "genreHopper": return genres.count
+            case "timeTraveler": return decades.count
+            case "follower": return lib.followed.count
+            case "digger": return lib.entries.filter { $0.id < 0 }.count + (counters["filesImported"] ?? 0)
+            case "mover": return counters["spotifySongs"] ?? 0
+            case "historian": return spotify
+            case "wrapped": return counters["wrappedOpened"] ?? 0
+            case "sharer": return counters["shared"] ?? 0
+            case "dj": return counters["queued"] ?? 0
+            case "scratcher": return counters["vinylScratches"] ?? 0
+            case "stylist": return counters.keys.filter { $0.hasPrefix("theme:") }.count
+            case "lyricist": return counters["lyricsOpened"] ?? 0
+            case "veteran": return firstPlay.map { cal.dateComponents([.day], from: $0, to: .now).day ?? 0 } ?? 0
+            default: return 0
+            }
+        }
+        return all.isEmpty && lib.entries.isEmpty && counters.isEmpty
+            ? Self.all.map { BadgeStatus(def: $0, value: 0) }
+            : Self.all.map { BadgeStatus(def: $0, value: value($0.id)) }
+    }
+}
+
+// MARK: - Medal art
+
+/// A shiny medal: metal ring, the badge's symbol, and a slow sweep of light. Locked medals are grey with a lock.
+struct MedalView: View {
+    let icon: String
+    let tier: BadgeTier
+    var size: CGFloat = 64
+    var progress: Double = 0
+    @State private var shine = false
+
+    var body: some View {
+        let m = tier.metal
+        ZStack {
+            Circle()
+                .fill(LinearGradient(colors: [m[0], m[1], m[2]], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Circle()
+                .fill(RadialGradient(colors: [m[1], m[2]], center: .center, startRadius: 0, endRadius: size * 0.45))
+                .padding(size * 0.1)
+                .overlay(Circle().stroke(m[0].opacity(0.7), lineWidth: max(1, size * 0.02)).padding(size * 0.1))
+            Image(systemName: icon)
+                .font(.system(size: size * 0.34, weight: .bold))
+                .foregroundStyle(tier == .none ? Color.white.opacity(0.35) : Color.white)
+                .shadow(color: .black.opacity(0.35), radius: size * 0.03, y: size * 0.02)
+            if tier != .none {
+                // The sweep of light across the metal
+                Circle()
+                    .fill(AngularGradient(colors: [.clear, .white.opacity(0.55), .clear, .clear], center: .center))
+                    .rotationEffect(.degrees(shine ? 360 : 0))
+                    .blendMode(.overlay)
+                    .allowsHitTesting(false)
+            } else {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: size * 0.16, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(size * 0.06)
+                    .background(Circle().fill(Color(white: 0.2)))
+                    .offset(x: size * 0.32, y: size * 0.32)
+            }
+            if tier != .gold && progress > 0 {
+                Circle().trim(from: 0, to: progress)
+                    .stroke(Color.accentColor.opacity(0.9), style: StrokeStyle(lineWidth: max(2, size * 0.04), lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(-size * 0.05)
+            }
+        }
+        .frame(width: size, height: size)
+        .shadow(color: (tier == .gold ? Color.yellow : .black).opacity(tier == .none ? 0.15 : 0.3), radius: size * 0.08, y: size * 0.04)
+        .onAppear {
+            guard tier != .none, AppModel.shared.prefs.data.animations else { return }
+            withAnimation(.linear(duration: tier == .gold ? 4 : 6).repeatForever(autoreverses: false)) { shine = true }
+        }
+    }
+}

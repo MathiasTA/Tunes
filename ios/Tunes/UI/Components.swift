@@ -145,19 +145,27 @@ struct PlaylistTile: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Color(hex: playlist.colorHex)
-            if let v = playlist.coverVersion {
-                Artwork(url: nil, local: Paths.playlistCover(playlist.id, v), size: size, seed: v)
-            } else if size > 70 {
+            switch playlist.effectiveCover {
+            case .photo:
+                if let v = playlist.coverVersion { Artwork(url: nil, local: Paths.playlistCover(playlist.id, v), size: size, seed: v) }
+            case .collage:
+                collage
+            case .album:
+                if let s = playlist.songs.first { s.artwork(size).environment(\.look, squareLook) } else { plain }
+            case .gradient:
+                LinearGradient(colors: [Color(hex: playlist.colorHex), Self.shifted(playlist.colorHex)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
                 Text(playlist.name)
-                    .font(.system(size: size * 0.13, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .lineLimit(3)
+                    .font(.system(size: max(9, size * 0.15), weight: .black))
+                    .foregroundStyle(.white).lineLimit(3).minimumScaleFactor(0.6)
+                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
                     .padding(size * 0.08)
-            } else {
-                Image(systemName: playlist.isChart ? "list.number" : (playlist.isAuto ? "sparkles" : "music.note.list"))
-                    .font(.system(size: size * 0.38, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
+            case .emoji:
+                Text(playlist.coverEmoji ?? "🎵")
+                    .font(.system(size: size * 0.5))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .color:
+                plain
             }
             if let badge = playlist.badge, size > 70 {
                 Text(badge)
@@ -171,6 +179,56 @@ struct PlaylistTile: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: look.artRadius(size: size) == size / 2 ? 12 : look.artRadius(size: size), style: .continuous))
+    }
+
+    private var squareLook: Look {
+        var l = look
+        l.artShape = .square
+        return l
+    }
+
+    /// Four different album covers in a 2×2 grid (or fewer, if the playlist has fewer albums).
+    private var picks: [Song] {
+        var seen = Set<Int>()
+        return Array(playlist.songs.filter { seen.insert($0.album?.id ?? $0.id).inserted }.prefix(4))
+    }
+
+    @ViewBuilder private var collage: some View {
+        let picks = self.picks
+        if picks.count >= 4 {
+            let half = size / 2
+            VStack(spacing: 0) {
+                HStack(spacing: 0) { picks[0].artwork(half); picks[1].artwork(half) }
+                HStack(spacing: 0) { picks[2].artwork(half); picks[3].artwork(half) }
+            }
+            .environment(\.look, squareLook)
+        } else if let first = picks.first {
+            first.artwork(size).environment(\.look, squareLook)
+        } else {
+            plain
+        }
+    }
+
+    /// A second gradient color: the playlist color with its hue nudged along.
+    static func shifted(_ hex: String) -> Color {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(Color(hex: hex)).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return Color(UIColor(hue: (h + 0.13).truncatingRemainder(dividingBy: 1), saturation: min(1, s * 1.1), brightness: max(0.35, b * 0.8), alpha: 1))
+    }
+
+    @ViewBuilder private var plain: some View {
+        if size > 70 {
+            Text(playlist.name)
+                .font(.system(size: size * 0.13, weight: .heavy))
+                .foregroundStyle(.white)
+                .lineLimit(3)
+                .padding(size * 0.08)
+        } else {
+            Image(systemName: playlist.isChart ? "list.number" : (playlist.isAuto ? "sparkles" : "music.note.list"))
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 

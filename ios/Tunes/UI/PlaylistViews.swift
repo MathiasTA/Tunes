@@ -11,6 +11,8 @@ struct PlaylistView: View {
     @State private var exportFile: ExportFile?
     @State private var query = ""
     @State private var pickingCover = false
+    @State private var choosingEmoji = false
+    @State private var emojiText = ""
     @State private var coverItem: PhotosPickerItem?
 
     var body: some View {
@@ -150,6 +152,15 @@ struct PlaylistView: View {
                 coverItem = nil
             }
         }
+        .alert("Cover emoji", isPresented: $choosingEmoji) {
+            TextField("Type or pick an emoji", text: $emojiText)
+            Button("Use") {
+                let e = emojiText.trimmingCharacters(in: .whitespaces)
+                guard let first = e.first else { return }
+                app.playlists.update(p.id) { $0.coverEmoji = String(first); $0.cover = .emoji }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("Tip: switch to the emoji keyboard.") }
         .alert("Rename playlist", isPresented: $renaming) {
             TextField("Name", text: $newName)
             Button("Save") { app.playlists.update(p.id) { $0.name = newName } }
@@ -161,10 +172,21 @@ struct PlaylistView: View {
     private func menuItems(_ p: Playlist) -> some View {
         Button { app.playlists.togglePin(p.id) } label: { Label(p.pinned ? "Unpin" : "Pin to top", systemImage: "pin") }
         Button { newName = p.name; renaming = true } label: { Label("Rename", systemImage: "pencil") }
-        Button { pickingCover = true } label: { Label(p.coverVersion == nil ? "Add cover photo" : "Change cover photo", systemImage: "photo") }
-        if p.coverVersion != nil {
-            Button { setCover(nil, for: p) } label: { Label("Remove cover photo", systemImage: "photo.badge.minus") }
-        }
+        Menu {
+            Button { pickingCover = true } label: { Label(p.coverVersion == nil ? "Choose photo…" : "Change photo…", systemImage: "photo") }
+            ForEach([PlaylistCover.collage, .album, .gradient, .color]) { c in
+                Button { setStyle(c, for: p) } label: {
+                    Label(c.label, systemImage: p.effectiveCover == c ? "checkmark" : c.icon)
+                }
+            }
+            Button { emojiText = p.coverEmoji ?? ""; choosingEmoji = true } label: {
+                Label("Emoji…", systemImage: p.effectiveCover == .emoji ? "checkmark" : "face.smiling")
+            }
+            Button { shuffleColor(p) } label: { Label("New color", systemImage: "paintpalette") }
+            if p.coverVersion != nil {
+                Button(role: .destructive) { setCover(nil, for: p) } label: { Label("Remove photo", systemImage: "photo.badge.minus") }
+            }
+        } label: { Label("Cover", systemImage: "photo.artframe") }
         if case .auto = p.kind {
             Button { app.sheet = .autoPlaylist(p.id) } label: { Label("Change rules", systemImage: "slider.horizontal.3") }
         }
@@ -185,11 +207,22 @@ struct PlaylistView: View {
         Button(role: .destructive) { app.playlists.delete(p.id); app.navigateBack() } label: { Label("Delete playlist", systemImage: "trash") }
     }
 
+    private func setStyle(_ c: PlaylistCover, for p: Playlist) {
+        withAnimation { app.playlists.update(p.id) { $0.cover = c } }
+        app.haptic(.selection)
+    }
+
+    private func shuffleColor(_ p: Playlist) {
+        let colors = ["#7C3AED", "#DB2777", "#EA580C", "#CA8A04", "#16A34A", "#0891B2", "#2563EB", "#4F46E5", "#BE123C", "#0F766E", "#9333EA", "#475569"]
+        let next = colors.filter { $0 != p.colorHex }.randomElement() ?? p.colorHex
+        withAnimation { app.playlists.update(p.id) { $0.colorHex = next } }
+    }
+
     /// Saves (or removes, with nil) a playlist's own cover photo, cropped square.
     private func setCover(_ data: Data?, for p: Playlist) {
         if let old = p.coverVersion { try? FileManager.default.removeItem(at: Paths.playlistCover(p.id, old)) }
         guard let data, let img = UIImage(data: data) else {
-            app.playlists.update(p.id) { $0.coverVersion = nil }
+            app.playlists.update(p.id) { $0.coverVersion = nil; if $0.cover == .photo { $0.cover = nil } }
             return
         }
         let side = min(img.size.width, img.size.height)
@@ -206,7 +239,7 @@ struct PlaylistView: View {
             app.show("Couldn't save the photo")
             return
         }
-        withAnimation { app.playlists.update(p.id) { $0.coverVersion = version } }
+        withAnimation { app.playlists.update(p.id) { $0.coverVersion = version; $0.cover = .photo } }
         app.haptic(.success)
     }
 

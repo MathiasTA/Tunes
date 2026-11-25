@@ -265,6 +265,14 @@ struct Playlist: Codable, Hashable, Identifiable {
     var lastPlayedAt: Date?
     /// Set when the user picked their own cover photo; bumped on every change so cached images refresh.
     var coverVersion: Int?
+    /// How the cover is drawn (nil = your photo if there is one, else the plain color).
+    var cover: PlaylistCover?
+    var coverEmoji: String?
+
+    var effectiveCover: PlaylistCover {
+        if let cover, cover != .photo || coverVersion != nil { return cover }
+        return coverVersion != nil ? .photo : .color
+    }
 
     init(name: String, kind: Kind, songs: [Song] = [], colorHex: String) {
         id = UUID()
@@ -280,6 +288,7 @@ struct Playlist: Codable, Hashable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, kind, songs, pinned, keepDownloaded, wifiOnly, colorHex, createdAt, refreshedAt, lastPlayedAt, coverVersion
+        case cover, coverEmoji
     }
 
     init(from decoder: Decoder) throws {
@@ -296,6 +305,8 @@ struct Playlist: Codable, Hashable, Identifiable {
         refreshedAt = try? c.decodeIfPresent(Date.self, forKey: .refreshedAt)
         lastPlayedAt = try? c.decodeIfPresent(Date.self, forKey: .lastPlayedAt)
         coverVersion = try? c.decodeIfPresent(Int.self, forKey: .coverVersion)
+        cover = try? c.decodeIfPresent(PlaylistCover.self, forKey: .cover)
+        coverEmoji = try? c.decodeIfPresent(String.self, forKey: .coverEmoji)
     }
 
     var isManual: Bool { if case .manual = kind { return true } else { return false } }
@@ -377,4 +388,31 @@ struct Concert: Identifiable, Hashable {
     let url: URL?
     let priceFrom: String?
     let distanceKm: Double?
+}
+
+
+/// Cover styles for playlists.
+enum PlaylistCover: String, Codable, CaseIterable, Identifiable {
+    case color, photo, collage, album, gradient, emoji
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .color: "Plain color"
+        case .photo: "Your photo"
+        case .collage: "Album collage"
+        case .album: "First album cover"
+        case .gradient: "Gradient"
+        case .emoji: "Emoji"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .color: "square.fill"
+        case .photo: "photo"
+        case .collage: "square.grid.2x2.fill"
+        case .album: "opticaldisc"
+        case .gradient: "circle.lefthalf.filled"
+        case .emoji: "face.smiling"
+        }
+    }
 }

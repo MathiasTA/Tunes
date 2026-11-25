@@ -3,90 +3,6 @@ import Observation
 import SwiftUI
 import UIKit
 
-enum ThemeMode: String, Codable, CaseIterable, Identifiable {
-    case dark, black, light, auto
-    case midnight, sunset, ocean, forest, rose
-    case aurora, nebula, lava, lagoon, pastel
-    var id: String { rawValue }
-    var label: String { self == .rose ? "Rosé" : rawValue.capitalized }
-
-    /// The plain themes; everything else draws a gradient (or, for Aurora, moving light) behind the app.
-    var isClassic: Bool { [.dark, .black, .light, .auto].contains(self) }
-
-    /// Animated themes: soft colored light drifting slowly behind the app.
-    var isAnimated: Bool { [.aurora, .nebula, .lava, .lagoon, .pastel].contains(self) }
-
-    /// The drifting lights of an animated theme, and how long one slow drift takes (seconds).
-    var lights: (colors: [String], opacity: Double, seconds: Double, stars: Bool) {
-        switch self {
-        case .aurora: (["#10B981", "#8B5CF6", "#0EA5E9"], 0.32, 18, false)
-        case .nebula: (["#C026D3", "#4F46E5", "#06B6D4"], 0.28, 24, true)
-        case .lava: (["#F97316", "#DC2626", "#DB2777"], 0.30, 14, false)
-        case .lagoon: (["#14B8A6", "#22D3EE", "#4ADE80"], 0.26, 20, false)
-        case .pastel: (["#F9A8D4", "#FDBA74", "#C4B5FD"], 0.45, 22, false)
-        default: ([], 0, 0, false)
-        }
-    }
-
-    var scheme: ColorScheme? {
-        switch self {
-        case .light, .rose, .pastel: .light
-        case .auto: nil
-        default: .dark
-        }
-    }
-
-    /// Gradient colors from top to bottom (gradient themes only).
-    var gradient: [String] {
-        switch self {
-        case .midnight: ["#0B1026", "#1B1446", "#2E1458"]
-        case .sunset: ["#1C0B2B", "#4A1638", "#8C3B2E"]
-        case .ocean: ["#03192B", "#053F5C", "#0B7285"]
-        case .forest: ["#06140D", "#0F2A1B", "#1F4A2C"]
-        case .aurora: ["#050B14", "#07121F", "#050B14"]
-        case .nebula: ["#07051A", "#0B0826", "#07051A"]
-        case .lava: ["#130606", "#1C0909", "#130606"]
-        case .lagoon: ["#03161A", "#052126", "#03161A"]
-        case .pastel: ["#FFF9F5", "#FDF4FF", "#FFF9F5"]
-        case .rose: ["#FFF1F2", "#FCE7F3", "#EDE9FE"]
-        default: []
-        }
-    }
-
-    /// A solid color for the tab bar, so its buttons stay readable over the gradient.
-    var barHex: String? {
-        switch self {
-        case .midnight: "#0D1130"
-        case .sunset: "#1E0C2C"
-        case .ocean: "#041E33"
-        case .forest: "#08180F"
-        case .aurora: "#070F1A"
-        case .nebula: "#0A0820"
-        case .lava: "#1A0909"
-        case .lagoon: "#041B20"
-        case .pastel: "#FFF8F6"
-        case .rose: "#FFF5F8"
-        default: nil
-        }
-    }
-
-    /// The accent picked automatically when you choose this theme (you can still change it).
-    var suggestedAccent: String? {
-        switch self {
-        case .midnight: "#A78BFA"
-        case .sunset: "#FB923C"
-        case .ocean: "#22D3EE"
-        case .forest: "#86EFAC"
-        case .aurora: "#34D399"
-        case .nebula: "#E879F9"
-        case .lava: "#FB923C"
-        case .lagoon: "#2DD4BF"
-        case .pastel: "#EC4899"
-        case .rose: "#DB2777"
-        default: nil
-        }
-    }
-}
 
 enum CornerStyle: String, Codable, CaseIterable, Identifiable {
     case sharp, soft, round
@@ -164,10 +80,12 @@ struct EQProfile: Codable, Hashable {
 
 enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
     case summary, madeForYou, newFromArtists, charts, recentlyPlayed, recentlyAdded, topArtists, following, onRepeat, trending, newReleases
-    case yourPlaylists, favoriteAlbums
+    case yourPlaylists, favoriteAlbums, badges
     var id: String { rawValue }
+    /// New sections are on by default, except Badges (it's for showing off, so you choose).
+    var visibleByDefault: Bool { self != .badges }
     /// The summary card has a fixed look; everything else can change layout.
-    var hasLayouts: Bool { self != .summary }
+    var hasLayouts: Bool { self != .summary && self != .badges }
     var defaultLayout: HomeLayout {
         switch self {
         case .onRepeat: .numbered
@@ -192,6 +110,7 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .newReleases: "New releases"
         case .yourPlaylists: "Your playlists"
         case .favoriteAlbums: "Your favorite albums right now"
+        case .badges: "Your badges"
         }
     }
     var icon: String {
@@ -209,6 +128,7 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .newReleases: "opticaldisc"
         case .yourPlaylists: "music.note.list"
         case .favoriteAlbums: "square.stack.fill"
+        case .badges: "medal.fill"
         }
     }
 }
@@ -326,9 +246,17 @@ struct PrefsData: Codable, Equatable {
     var tabLabels = true
     var haptics = true
     var animations = true
+    var font: AppFont = .standard
+    var playerStyle: PlayerStyle = .classic
+    var progressStyle: ProgressStyle = .line
+    var miniPlayerStyle: MiniPlayerStyle = .card
+    /// Things the badges count that can't be worked out from your stats (e.g. songs shared).
+    var counters: [String: Int] = [:]
+    /// Badge tiers already celebrated, so each unlock is announced once.
+    var badgeTiers: [String: Int] = [:]
 
     // Home
-    var home: [HomeSection] = HomeSectionKind.allCases.map { HomeSection(kind: $0, visible: true) }
+    var home: [HomeSection] = HomeSectionKind.allCases.map { HomeSection(kind: $0, visible: $0.visibleByDefault) }
     var homeCharts: [ChartSource] = ChartCatalog.defaults
 
     // Data & downloads
@@ -380,6 +308,8 @@ struct PrefsData: Codable, Equatable {
         corners = v(.corners, d.corners); artShape = v(.artShape, d.artShape); textSize = v(.textSize, d.textSize)
         playerBackground = v(.playerBackground, d.playerBackground); tabLabels = v(.tabLabels, d.tabLabels)
         haptics = v(.haptics, d.haptics); animations = v(.animations, d.animations)
+        font = v(.font, d.font); playerStyle = v(.playerStyle, d.playerStyle); progressStyle = v(.progressStyle, d.progressStyle)
+        miniPlayerStyle = v(.miniPlayerStyle, d.miniPlayerStyle); counters = v(.counters, d.counters); badgeTiers = v(.badgeTiers, d.badgeTiers)
         home = v(.home, d.home); homeCharts = v(.homeCharts, d.homeCharts)
         offline = v(.offline, d.offline); downloadWifiOnly = v(.downloadWifiOnly, d.downloadWifiOnly)
         askBeforeExtras = v(.askBeforeExtras, d.askBeforeExtras); previewsOnCellular = v(.previewsOnCellular, d.previewsOnCellular)
@@ -398,7 +328,7 @@ struct PrefsData: Codable, Equatable {
         concertRadiusKm = v(.concertRadiusKm, d.concertRadiusKm)
         // Sections added in later versions show up at the end.
         for kind in HomeSectionKind.allCases where !home.contains(where: { $0.kind == kind }) {
-            home.append(HomeSection(kind: kind, visible: true))
+            home.append(HomeSection(kind: kind, visible: kind.visibleByDefault))
         }
     }
 
@@ -431,12 +361,17 @@ final class Prefs {
     var isPrivate: Bool { data.privateMode.isActive }
 
     var colorScheme: ColorScheme? { data.theme.scheme }
+
+    /// Light/dark for a given look (Horizon switches during the day).
+    func colorScheme(for look: Look) -> ColorScheme? { look.palette?.scheme ?? data.theme.scheme }
 }
 
 /// Colors and shapes derived from appearance settings, available to every view.
 struct Look: Equatable {
     var accent: Color = Color(hex: "#34D399")
     var theme: ThemeMode = .dark
+    /// The resolved colors of non-classic themes (Dynamic and Horizon change over time).
+    var palette: Palette? = nil
     var black: Bool { theme == .black }
     var corner: CGFloat = 1
     var artShape: ArtShape = .soft
@@ -471,9 +406,19 @@ extension EnvironmentValues {
 }
 
 extension Prefs {
-    var look: Look {
-        Look(accent: accent,
+    var look: Look { look(at: .now, cover: nil) }
+
+    /// The look at a given moment: Horizon depends on the time, Dynamic on the cover that's playing.
+    func look(at date: Date, cover: CoverColors?) -> Look {
+        let palette: Palette? = switch data.theme {
+        case .horizon: HorizonPhase.at(date).palette
+        case .dynamic: (cover ?? .fallback).palette
+        default: data.theme.palette
+        }
+        let accentColor = data.theme.isLive ? (palette?.accent ?? accent) : accent
+        return Look(accent: accentColor,
              theme: data.theme,
+             palette: palette,
              corner: data.corners == .sharp ? 0.4 : (data.corners == .round ? 1.6 : 1),
              artShape: data.artShape,
              playerBackground: data.playerBackground)
@@ -490,20 +435,20 @@ struct Surface {
 
     /// A solid background color. Gradient themes draw `ThemeBackground` instead; this is their base color.
     static func background(_ look: Look) -> Color {
-        if !look.theme.isClassic, let base = look.theme.gradient.first { return Color(hex: base) }
+        if let base = look.palette?.colors.first { return base }
         return look.black ? .black : dynamic(light: .systemBackground, dark: gray(0.075))
     }
     static func card(_ look: Look) -> Color {
-        if !look.theme.isClassic { return look.theme.scheme == .light ? Color.white.opacity(0.6) : Color.white.opacity(0.08) }
+        if let p = look.palette { return p.scheme == .light ? Color.white.opacity(0.6) : Color.white.opacity(0.08) }
         return look.black ? Color(white: 0.08) : dynamic(light: .secondarySystemBackground, dark: gray(0.13))
     }
     static func raised(_ look: Look) -> Color {
-        if !look.theme.isClassic { return look.theme.scheme == .light ? Color.white.opacity(0.8) : Color.white.opacity(0.14) }
+        if let p = look.palette { return p.scheme == .light ? Color.white.opacity(0.8) : Color.white.opacity(0.14) }
         return look.black ? Color(white: 0.13) : dynamic(light: .tertiarySystemBackground, dark: gray(0.18))
     }
     /// The tab bar: always solid.
     static func bar(_ look: Look) -> Color {
-        if let hex = look.theme.barHex { return Color(hex: hex) }
+        if let bar = look.palette?.bar { return bar }
         return card(look)
     }
     /// Background behind grouped settings lists.
@@ -517,7 +462,7 @@ struct Surface {
         case .dark: return Color.white.opacity(0.075)
         case .light: return Color.white.opacity(0.85)
         case .auto: return dynamic(light: UIColor.white.withAlphaComponent(0.85), dark: UIColor.white.withAlphaComponent(0.075))
-        default: return look.theme.scheme == .light ? Color.white.opacity(0.55) : Color.white.opacity(0.085)
+        default: return look.palette?.scheme == .light ? Color.white.opacity(0.55) : Color.white.opacity(0.085)
         }
     }
 }
@@ -529,7 +474,7 @@ struct ThemedForm: ViewModifier {
         content
             .scrollContentBackground(.hidden)
             .background {
-                if look.theme.isClassic { Surface.grouped(look).ignoresSafeArea() } else { ThemeBackground().ignoresSafeArea() }
+                if look.palette == nil { Surface.grouped(look).ignoresSafeArea() } else { ThemeBackground().ignoresSafeArea() }
             }
             .labelStyle(SettingsLabelStyle())
             .tint(look.accent)
@@ -621,116 +566,63 @@ private struct TunesSwitch: View {
 }
 
 
-/// The full-screen background for the current theme: a plain color, a gradient, or Aurora's slowly drifting light.
-struct ThemeBackground: View {
-    @Environment(\.look) private var look
 
-    var body: some View {
-        let theme = look.theme
-        if theme.isClassic {
-            Surface.background(look)
-        } else if theme.isAnimated {
-            DriftingLights(theme: theme)
-                .id(theme)
-        } else {
-            GlowGradient(theme: theme)
+
+enum PlayerStyle: String, Codable, CaseIterable, Identifiable {
+    case classic, vinyl, cassette, minimal, lyrics
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .classic: "Classic"
+        case .vinyl: "Vinyl"
+        case .cassette: "Cassette"
+        case .minimal: "Minimal"
+        case .lyrics: "Lyrics first"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .classic: "square.fill"
+        case .vinyl: "record.circle"
+        case .cassette: "recordingtape"
+        case .minimal: "textformat.size.larger"
+        case .lyrics: "quote.bubble.fill"
         }
     }
 }
 
-/// A gradient with two soft, still glows for depth, plus a gentle darkening at the bottom so text stays readable.
-private struct GlowGradient: View {
-    let theme: ThemeMode
-    var body: some View {
-        let c = theme.gradient.map { Color(hex: $0) }
-        let light = theme.scheme == .light
-        GeometryReader { g in
-            let w = g.size.width, h = g.size.height
-            ZStack {
-                LinearGradient(colors: c, startPoint: .topLeading, endPoint: .bottomTrailing)
-                RadialGradient(colors: [glow.0.opacity(light ? 0.35 : 0.30), .clear], center: .topTrailing,
-                               startRadius: 0, endRadius: max(w, h) * 0.7)
-                RadialGradient(colors: [glow.1.opacity(light ? 0.30 : 0.22), .clear],
-                               center: UnitPoint(x: 0.1, y: 0.75), startRadius: 0, endRadius: max(w, h) * 0.6)
-                LinearGradient(colors: [.clear, (light ? Color.white : Color.black).opacity(0.25)],
-                               startPoint: UnitPoint(x: 0.5, y: 0.55), endPoint: .bottom)
-            }
-        }
-    }
-
-    /// Two glow colors per theme, picked to sit nicely on its gradient.
-    private var glow: (Color, Color) {
-        switch theme {
-        case .midnight: (Color(hex: "#6366F1"), Color(hex: "#C084FC"))
-        case .sunset: (Color(hex: "#F97316"), Color(hex: "#EC4899"))
-        case .ocean: (Color(hex: "#22D3EE"), Color(hex: "#3B82F6"))
-        case .forest: (Color(hex: "#4ADE80"), Color(hex: "#A3E635"))
-        case .rose: (Color(hex: "#F9A8D4"), Color(hex: "#C4B5FD"))
-        default: (.clear, .clear)
+enum ProgressStyle: String, Codable, CaseIterable, Identifiable {
+    case line, thick, waveform, squiggle, dots
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .line: "Line"
+        case .thick: "Thick"
+        case .waveform: "Waveform"
+        case .squiggle: "Squiggle"
+        case .dots: "Dots"
         }
     }
 }
 
-/// Three large, heavily blurred lights that drift slowly back and forth (plus optional twinkling stars).
-/// Only offsets and opacity animate, so it's cheap to draw.
-private struct DriftingLights: View {
-    let theme: ThemeMode
-    @State private var drift = false
-    @State private var twinkle = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let l = theme.lights
-        GeometryReader { g in
-            let w = g.size.width, h = g.size.height
-            ZStack {
-                Color(hex: theme.gradient.first ?? "#000000")
-                if l.colors.count == 3 {
-                    blob(l.colors[0], l.opacity, size: w * 1.1)
-                        .offset(x: drift ? -w * 0.25 : w * 0.15, y: drift ? -h * 0.30 : -h * 0.18)
-                    blob(l.colors[1], l.opacity, size: w * 1.0)
-                        .offset(x: drift ? w * 0.30 : -w * 0.10, y: drift ? -h * 0.05 : -h * 0.25)
-                    blob(l.colors[2], l.opacity, size: w * 0.9)
-                        .offset(x: drift ? -w * 0.05 : w * 0.25, y: drift ? h * 0.30 : h * 0.15)
-                }
-                if l.stars { stars(w: w, h: h) }
-            }
-            .frame(width: w, height: h)
-            .clipped()
-        }
-        .onAppear {
-            guard !reduceMotion, AppModel.shared.prefs.data.animations else { return }
-            withAnimation(.easeInOut(duration: l.seconds).repeatForever(autoreverses: true)) { drift = true }
-            withAnimation(.easeInOut(duration: 3.5).repeatForever(autoreverses: true)) { twinkle = true }
+enum MiniPlayerStyle: String, Codable, CaseIterable, Identifiable {
+    case card, bar, bubble, minimal
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .card: "Card"
+        case .bar: "Bar"
+        case .bubble: "Bubble"
+        case .minimal: "Minimal"
         }
     }
-
-    private func blob(_ hex: String, _ opacity: Double, size: CGFloat) -> some View {
-        Circle().fill(Color(hex: hex).opacity(opacity)).frame(width: size, height: size).blur(radius: 90)
-    }
-
-    /// Tiny stars in fixed spots; half of them fade in while the other half fade out.
-    private func stars(w: CGFloat, h: CGFloat) -> some View {
-        var rng = SeededRNG(seed: 42)
-        let points = (0..<46).map { i -> (CGFloat, CGFloat, CGFloat, Bool) in
-            (CGFloat.random(in: 0...w, using: &rng), CGFloat.random(in: 0...h, using: &rng),
-             CGFloat.random(in: 1...2.4, using: &rng), i.isMultiple(of: 2))
+    /// Room screens leave at the bottom for it.
+    var height: CGFloat {
+        switch self {
+        case .card: 72
+        case .bar: 62
+        case .bubble: 78
+        case .minimal: 52
         }
-        return ZStack {
-            ForEach(points.indices, id: \.self) { i in
-                let p = points[i]
-                Circle().fill(.white)
-                    .frame(width: p.2, height: p.2)
-                    .opacity((p.3 == twinkle) ? 0.85 : 0.2)
-                    .position(x: p.0, y: p.1)
-            }
-        }
-    }
-}
-
-extension View {
-    /// Puts the current theme's background behind a screen.
-    func themeBackground() -> some View {
-        background { ThemeBackground().ignoresSafeArea() }
     }
 }

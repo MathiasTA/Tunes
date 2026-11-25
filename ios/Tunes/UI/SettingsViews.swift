@@ -407,11 +407,16 @@ struct AppearanceView: View {
                 ThemeGrid()
                     .padding(.vertical, 6)
             } header: { Text("Theme") } footer: {
-                Text("Dark uses soft charcoal greys. Black is pure black, which saves battery on iPhone X and newer (except XR and 11). Auto follows your iPhone's light/dark setting. Midnight to Rosé paint a gradient behind the whole app. Aurora, Nebula, Lava, Lagoon and Pastel have soft light that drifts slowly (Nebula adds twinkling stars); they hold still if Animations is off. Picking one of those also picks a matching accent color, which you can change below.")
+                Text("Dynamic takes its colors from the cover that's playing. Horizon follows the sky through the day: dawn, sunrise, day, golden hour, sunset, dusk and night. Gradient and animated themes pick a matching accent color, which you can change below (Dynamic and Horizon always use their own). Black is pure black, which saves battery on most iPhones. Animated themes hold still when Animations is off.")
             }
 .themedRow()
             Section {
                 HStack {
+                    ColorPicker("Custom", selection: Binding(get: { Color(hex: prefs.data.accentHex) },
+                                                             set: { prefs.data.accentHex = $0.hexString }), supportsOpacity: false)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("Custom accent color")
                     ForEach(Self.accents, id: \.self) { hex in
                         Button { withAnimation { prefs.data.accentHex = hex }; app.haptic(.selection) } label: {
                             Circle().fill(Color(hex: hex)).frame(width: 30, height: 30)
@@ -424,9 +429,29 @@ struct AppearanceView: View {
                 }
                 .padding(.vertical, 6)
             } header: { Text("Accent color") } footer: {
-                Text("Used for buttons, switches, progress bars and highlights all over the app.")
+                Text("Used for buttons, switches, progress bars and highlights all over the app. The rainbow circle picks any color you like.")
             }
 .themedRow()
+            Section {
+                StylePicker(title: "Player", options: PlayerStyle.allCases, selection: $prefs.data.playerStyle) { o in
+                    Label(o.label, systemImage: o.icon)
+                }
+                StylePicker(title: "Progress bar", options: ProgressStyle.allCases, selection: $prefs.data.progressStyle) { o in
+                    VStack(spacing: 6) {
+                        ProgressBarArt(style: o, fraction: 0.6).frame(width: 64, height: 18)
+                        Text(o.label).font(.caption2)
+                    }
+                }
+                StylePicker(title: "Mini player", options: MiniPlayerStyle.allCases, selection: $prefs.data.miniPlayerStyle) { o in
+                    Text(o.label)
+                }
+                StylePicker(title: "Font", options: AppFont.allCases, selection: $prefs.data.font) { o in
+                    Text(o.label).font(.subheadline.weight(.semibold)).fontDesign(o.design).fontWidth(o.width)
+                }
+            } header: { Text("Style") } footer: {
+                Text("Player: Vinyl spins while playing, and you can drag the record backwards or forwards to rewind or skip ahead. Cassette turns its reels. Minimal shows big text. Lyrics first fills the screen with lyrics. Mini player: the bar above the tabs while music plays.")
+            }
+            .themedRow()
             Section {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 14) {
                     ForEach(AppIcons.all, id: \.name) { icon in
@@ -493,74 +518,152 @@ struct AppearanceView: View {
     }
 }
 
-/// Theme swatches: a mini preview of each theme's background, a card and the accent color.
+/// Theme swatches in groups: a mini preview of each theme's background, a card and its accent.
 struct ThemeGrid: View {
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 14) {
-            ForEach(ThemeMode.allCases) { theme in
-                let selected = app.prefs.data.theme == theme
-                Button {
-                    withAnimation(.easeInOut(duration: 0.35)) {
-                        app.prefs.data.theme = theme
-                        if let a = theme.suggestedAccent { app.prefs.data.accentHex = a }
-                    }
-                    app.haptic(.selection)
-                } label: {
-                    VStack(spacing: 5) {
-                        swatch(theme)
-                            .frame(height: 64)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(selected ? look.accent : Color.secondary.opacity(0.25), lineWidth: selected ? 3 : 1)
-                                    .padding(selected ? -3 : 0)
-                            }
-                        Text(theme.label).font(.caption2.weight(selected ? .bold : .regular))
-                            .foregroundStyle(selected ? Color.primary : Color.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(ThemeMode.groups, id: \.0) { group in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(group.0.uppercased()).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
+                        ForEach(group.1) { theme in cell(theme) }
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(theme.label) theme")
-                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
     }
 
-    @ViewBuilder
-    private func swatch(_ theme: ThemeMode) -> some View {
-        let light = theme.scheme == .light
+    private func cell(_ theme: ThemeMode) -> some View {
+        let selected = app.prefs.data.theme == theme
+        return Button {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                app.prefs.data.theme = theme
+                if let a = theme.suggestedAccent { app.prefs.data.accentHex = a }
+            }
+            if theme == .dynamic { app.coverChanged() }
+            app.mark("theme:\(theme.rawValue)")
+            app.haptic(.selection)
+        } label: {
+            VStack(spacing: 5) {
+                ThemeSwatch(theme: theme)
+                    .frame(height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(selected ? look.accent : Color.secondary.opacity(0.25), lineWidth: selected ? 3 : 1)
+                            .padding(selected ? -3 : 0)
+                    }
+                Text(subtitle(theme)).font(.caption2.weight(selected ? .bold : .regular))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(theme.label) theme")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func subtitle(_ t: ThemeMode) -> String {
+        t == .horizon ? "Horizon · \(HorizonPhase.at(.now).label)" : t.label
+    }
+}
+
+/// A tiny preview of a theme.
+struct ThemeSwatch: View {
+    let theme: ThemeMode
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let palette: Palette? = switch theme {
+        case .horizon: HorizonPhase.at(.now).palette
+        case .dynamic: nil
+        default: theme.palette
+        }
         ZStack(alignment: .bottomLeading) {
             switch theme {
             case .dark: Color(white: 0.075)
             case .black: Color.black
             case .light: Color(white: 0.97)
-            case .auto:
-                HStack(spacing: 0) { Color(white: 0.97); Color(white: 0.075) }
-            case _ where theme.isAnimated:
-                let l = theme.lights
-                ZStack {
-                    Color(hex: theme.gradient.first ?? "#000000")
-                    Circle().fill(Color(hex: l.colors[0]).opacity(0.65)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
-                    Circle().fill(Color(hex: l.colors[1]).opacity(0.65)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
-                    if l.stars {
+            case .auto: HStack(spacing: 0) { Color(white: 0.97); Color(white: 0.075) }
+            case .dynamic:
+                // A rainbow of covers, since it changes with every song.
+                AngularGradient(colors: ["#F43F5E", "#F59E0B", "#22C55E", "#06B6D4", "#8B5CF6", "#F43F5E"].map { Color(hex: $0) }, center: .center)
+                    .blur(radius: 8)
+                    .overlay(Color.black.opacity(0.35))
+            default:
+                if let p = palette {
+                    if !p.lights.isEmpty {
+                        ZStack {
+                            p.colors.first ?? .black
+                            Circle().fill(p.lights[0].opacity(0.65)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
+                            Circle().fill(p.lights[1].opacity(0.65)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
+                        }
+                    } else {
+                        LinearGradient(colors: p.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                            .overlay(alignment: .topTrailing) {
+                                if let g = p.glow.first { Circle().fill(g.opacity(0.5)).frame(width: 40).blur(radius: 12).offset(x: 10, y: -10) }
+                            }
+                    }
+                    if p.stars {
                         ForEach(0..<6, id: \.self) { i in
                             Circle().fill(.white).frame(width: 2, height: 2)
                                 .offset(x: CGFloat([-22, -8, 6, 18, -16, 24][i]), y: CGFloat([-20, 12, -14, 18, 4, -4][i]))
                         }
                     }
+                    if p.grid {
+                        VStack(spacing: 4) { ForEach(0..<4, id: \.self) { _ in Rectangle().fill((p.glow.last ?? .cyan).opacity(0.5)).frame(height: 1) } }
+                            .frame(maxHeight: .infinity, alignment: .bottom).padding(.bottom, 4)
+                    }
                 }
-            default:
-                LinearGradient(colors: theme.gradient.map { Color(hex: $0) }, startPoint: .top, endPoint: .bottom)
             }
             HStack(spacing: 4) {
-                RoundedRectangle(cornerRadius: 3).fill((light ? Color.black : Color.white).opacity(0.18)).frame(width: 26, height: 8)
-                Circle().fill(Color(hex: theme.suggestedAccent ?? app.prefs.data.accentHex)).frame(width: 9, height: 9)
+                RoundedRectangle(cornerRadius: 3).fill(((palette?.scheme ?? theme.scheme) == .light ? Color.black : Color.white).opacity(0.18))
+                    .frame(width: 26, height: 8)
+                Circle().fill(palette?.accent ?? Color(hex: app.prefs.data.accentHex)).frame(width: 9, height: 9)
             }
             .padding(7)
         }
+    }
+}
+
+/// A row of choices shown as tappable chips with a little preview each.
+struct StylePicker<Option: Hashable & Identifiable, Preview: View>: View {
+    let title: String
+    let options: [Option]
+    @Binding var selection: Option
+    @ViewBuilder let preview: (Option) -> Preview
+    @Environment(\.look) private var look
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.subheadline.weight(.semibold))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(options) { o in
+                        let on = o == selection
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { selection = o }
+                            AppModel.shared.haptic(.selection)
+                        } label: {
+                            preview(o)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 12).padding(.vertical, 9)
+                                .frame(minHeight: 40)
+                                .background(on ? look.accent.opacity(0.22) : Color.secondary.opacity(0.12),
+                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(on ? look.accent : .clear, lineWidth: 2))
+                                .foregroundStyle(on ? look.accent : Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -757,6 +860,11 @@ struct ProfileView: View {
                     Button { app.sheet = nil; app.tab = .stats } label: { Label("See all your stats", systemImage: "chart.bar") }
                 }
 .themedRow()
+                Section {
+                    BadgeShelf(size: 56)
+                    NavigationLink { BadgesView() } label: { Label("All badges", systemImage: "medal.fill") }
+                } header: { Text("Badges") }
+                .themedRow()
                 Section {
                     Picker(selection: Binding(get: { privateChoice }, set: { setPrivate($0) })) {
                         Text("Off").tag(0); Text("1 hour").tag(1); Text("8 hours").tag(2); Text("Until tomorrow").tag(3); Text("Always").tag(4)

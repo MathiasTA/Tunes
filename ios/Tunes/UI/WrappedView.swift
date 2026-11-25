@@ -175,6 +175,7 @@ struct WrappedView: View {
         .animation(.easeInOut(duration: 0.25), value: paused)
         .statusBarHidden()
         .onAppear {
+            app.bump("wrappedOpened")
             app.player.pause()
             load(.year)
         }

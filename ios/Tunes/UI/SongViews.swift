@@ -162,6 +162,7 @@ struct ShareSongView: View {
 .themedRow()
             }
             .themedForm()
+            .onAppear { app.bump("shared") }
             .navigationTitle("Share")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -913,6 +914,8 @@ struct ImportFilesView: View {
             }
         }
         cleanup()
+        let catalogImports = items.filter { $0.useCatalog && $0.suggestion != nil }.count
+        if catalogImports > 0 { app.bump("filesImported", by: min(done, catalogImports)) }
         app.show(failed == 0 ? "Imported \(done) song\(done == 1 ? "" : "s")" : "Imported \(done), \(failed) failed")
         dismiss()
     }
@@ -1272,6 +1275,7 @@ struct SpotifyImportView: View {
         var seen = Set<Int>()
         let songs = rows.compactMap { $0.result?.song }.filter { seen.insert($0.id).inserted }
         let p = app.playlists.create(name: name.trimmingCharacters(in: .whitespaces).isEmpty ? "Imported playlist" : name, songs: songs)
+        app.bump("spotifySongs", by: songs.count)
         app.library.downloadAll(songs)
         app.show("Downloading \(songs.filter { !app.library.isDownloaded($0.id) }.count) songs")
         app.navigate(.playlist(p.id))

@@ -174,6 +174,18 @@ struct HomeView: View {
     private func sectionView(_ section: HomeSection) -> some View {
         if section.kind == .summary {
             summary
+        } else if section.kind == .badges {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text(section.kind.title).font(.title2.bold())
+                    Spacer()
+                    NavigationLink(value: Route.badges) {
+                        Text("See all").font(.footnote.weight(.semibold))
+                    }
+                }
+                BadgeShelf(size: 70)
+            }
+            .padding(.horizontal)
         } else {
             let items = self.items(for: section.kind)
             if !items.isEmpty {

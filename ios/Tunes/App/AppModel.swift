@@ -31,6 +31,19 @@ final class AppModel {
     var toast: String?
 
     /// Opens a page from anywhere (player, menus, sheets).
+    /// Colors of the cover that's playing, for the Dynamic theme.
+    var coverColors: CoverColors?
+
+    func coverChanged() {
+        checkBadges() // a song just changed: a good moment to check (stats moved on)
+        guard prefs.data.theme == .dynamic, let song = player.currentSong else { return }
+        Task {
+            guard let img = await ImageCache.shared.image(local: song.localArtworkURL, remote: song.artworkURL, maxPixel: 120),
+                  let colors = await CoverColors.extract(from: img), player.currentSong?.id == song.id else { return }
+            withAnimation(.easeInOut(duration: 1.2)) { coverColors = colors }
+        }
+    }
+
     /// Bumped when Home's tab is tapped while already on Home's first page (scroll up, close search).
     var homeReselect = 0
 
@@ -58,6 +71,7 @@ final class AppModel {
     private init() {}
 
     func onLaunch() {
+        defer { Task { @MainActor in try? await Task.sleep(for: .seconds(3)); AppModel.shared.checkBadges(force: true) } }
         UIApplication.shared.beginReceivingRemoteControlEvents()
         guard !launched else { return }
         launched = true
@@ -79,6 +93,7 @@ final class AppModel {
     }
 
     func onForeground() {
+        checkBadges(force: true)
         library.pump()
         Task { await playlists.refreshAll() }
         backup.autoBackupIfDue()
@@ -106,6 +121,51 @@ final class AppModel {
 
     func show(_ message: String) { toast = message }
 
+    // MARK: Badges
+
+    /// Counts something a badge looks at (e.g. songs shared), then checks for new badges.
+    func bump(_ key: String, by n: Int = 1) {
+        prefs.data.counters[key, default: 0] += n
+        checkBadges()
+    }
+
+    /// Marks something as done at least once (e.g. a theme tried).
+    func mark(_ key: String) {
+        guard prefs.data.counters[key] == nil else { return }
+        prefs.data.counters[key] = 1
+        checkBadges()
+    }
+
+    @ObservationIgnored private var lastBadgeCheck = Date.distantPast
+
+    /// Announces badges that just reached a new tier. The first check after updating is silent,
+    /// so badges you'd already earned don't all pop up at once.
+    func checkBadges(force: Bool = false) {
+        guard force || Date.now.timeIntervalSince(lastBadgeCheck) > 2 else { return }
+        lastBadgeCheck = .now
+        let statuses = Badges.evaluate()
+        let first = prefs.data.counters["badgesReady"] == nil
+        var earned: [BadgeStatus] = []
+        for s in statuses {
+            let known = prefs.data.badgeTiers[s.id] ?? 0
+            if s.tier.rawValue > known {
+                prefs.data.badgeTiers[s.id] = s.tier.rawValue
+                earned.append(s)
+            }
+        }
+        if first { prefs.data.counters["badgesReady"] = 1; return }
+        if let best = earned.max(by: { $0.tier < $1.tier }) {
+            let more = earned.count > 1 ? " and \(earned.count - 1) more" : ""
+            show("\(best.tier == .gold ? "🥇" : best.tier == .silver ? "🥈" : "🥉") \(best.tier.label) badge: \(best.def.name)\(more)")
+            haptic(.success)
+        }
+    }
+
+    /// Badges in the order to show off: highest tier first.
+    var earnedBadges: [BadgeStatus] {
+        Badges.evaluate().filter { $0.tier != .none }.sorted { $0.tier != $1.tier ? $0.tier > $1.tier : $0.def.name < $1.def.name }
+    }
+
     /// Songs plays can come from: the library copy if downloaded (with edits), else the catalog copy.
     func resolve(_ songs: [Song]) -> [Song] { songs.map { library.resolved($0) } }
 }
@@ -116,6 +176,7 @@ enum Route: Hashable {
     case artist(Artist)
     case artistMore(Artist)
     case discography(Artist)
+    case badges
     case album(Album)
     case playlist(UUID)
     case liked

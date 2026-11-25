@@ -8,7 +8,9 @@ import UIKit
 final class Player {
     enum RepeatMode: String, Codable { case off, all, one }
 
-    private(set) var currentID: Int?
+    private(set) var currentID: Int? {
+        didSet { if oldValue != currentID { AppModel.shared.coverChanged() } }
+    }
     private(set) var isPlaying = false
     /// Seconds into the file (trims included). Use `elapsed` for display.
     private(set) var position: Double = 0
@@ -128,6 +130,7 @@ final class Player {
     }
 
     func playNext(_ song: Song) {
+        AppModel.shared.bump("queued")
         guard AppModel.shared.library.isDownloaded(song.id) else { queueAfterDownload(song); return }
         userQueue.insert(song.id, at: 0)
         engine.cancelNext()
@@ -136,6 +139,7 @@ final class Player {
     }
 
     func addToQueue(_ song: Song) {
+        AppModel.shared.bump("queued")
         guard AppModel.shared.library.isDownloaded(song.id) else { queueAfterDownload(song); return }
         userQueue.append(song.id)
         engine.cancelNext()

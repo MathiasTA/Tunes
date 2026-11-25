@@ -11,39 +11,14 @@ struct MiniPlayer: View {
 
     var body: some View {
         if let song = app.player.currentSong, !app.showPlayer {
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    song.artwork(42)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(song.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                        Text(song.artistLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentTransition(.opacity)
-                    Button { app.player.togglePlayPause() } label: {
-                        Image(systemName: app.player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title2).frame(width: 44, height: 44)
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                    .accessibilityLabel(app.player.isPlaying ? "Pause" : "Play")
-                    Button { app.player.next() } label: { Image(systemName: "forward.fill").font(.title3).frame(width: 40, height: 44) }
-                        .disabled(!app.player.hasNext)
-                        .accessibilityLabel("Next song")
+            Group {
+                switch app.prefs.data.miniPlayerStyle {
+                case .card: card(song)
+                case .bar: bar(song)
+                case .bubble: MiniBubble(song: song, progress: progress)
+                case .minimal: minimal(song)
                 }
-                .foregroundStyle(.primary)
-                .padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 8)
-                GeometryReader { geo in
-                    Capsule().fill(look.accent)
-                        .frame(width: geo.size.width * progress, height: 2)
-                }
-                .frame(height: 2)
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: look.radius(14), style: .continuous))
-            .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-            .contentShape(Rectangle())
-            .onTapGesture { app.showPlayer = true }
             .gesture(DragGesture(minimumDistance: 20).onEnded { v in
                 if v.translation.height < -30 { app.showPlayer = true }
                 else if v.translation.width < -50 { app.player.next() }
@@ -51,6 +26,102 @@ struct MiniPlayer: View {
             })
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+    }
+
+    private func info(_ song: Song) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(song.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+            Text(song.artistLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentTransition(.opacity)
+    }
+
+    private var playButton: some View {
+        Button { app.player.togglePlayPause() } label: {
+            Image(systemName: app.player.isPlaying ? "pause.fill" : "play.fill")
+                .font(.title2).frame(width: 44, height: 44)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .accessibilityLabel(app.player.isPlaying ? "Pause" : "Play")
+    }
+
+    private var nextButton: some View {
+        Button { app.player.next() } label: { Image(systemName: "forward.fill").font(.title3).frame(width: 40, height: 44) }
+            .disabled(!app.player.hasNext)
+            .accessibilityLabel("Next song")
+    }
+
+    private func progressLine(height: CGFloat) -> some View {
+        GeometryReader { geo in
+            Capsule().fill(look.accent).frame(width: geo.size.width * progress, height: height)
+        }
+        .frame(height: height)
+    }
+
+    /// The floating card (the original look).
+    private func card(_ song: Song) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                song.artwork(42)
+                info(song)
+                playButton
+                nextButton
+            }
+            .foregroundStyle(.primary)
+            .padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 8)
+            progressLine(height: 2)
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: look.radius(14), style: .continuous))
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 4)
+        .contentShape(Rectangle())
+        .onTapGesture { app.showPlayer = true }
+    }
+
+    /// A full-width strip sitting right on top of the tab bar.
+    private func bar(_ song: Song) -> some View {
+        VStack(spacing: 0) {
+            progressLine(height: 2)
+            HStack(spacing: 12) {
+                song.artwork(40)
+                info(song)
+                playButton
+                nextButton
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+        }
+        .background(Surface.bar(look))
+        .overlay(alignment: .bottom) { Divider().opacity(0.4) }
+        .contentShape(Rectangle())
+        .onTapGesture { app.showPlayer = true }
+    }
+
+    /// Just text and a play button, in a slim pill.
+    private func minimal(_ song: Song) -> some View {
+        HStack(spacing: 8) {
+            Text("\(song.title)  ·  ").font(.footnote.weight(.semibold)) + Text(song.artistLine).font(.footnote).foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Button { app.player.togglePlayPause() } label: {
+                Image(systemName: app.player.isPlaying ? "pause.fill" : "play.fill").font(.body).frame(width: 36, height: 36)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel(app.player.isPlaying ? "Pause" : "Play")
+        }
+        .lineLimit(1)
+        .foregroundStyle(.primary)
+        .padding(.leading, 16).padding(.trailing, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(alignment: .bottomLeading) {
+            progressLine(height: 2).padding(.horizontal, 18).padding(.bottom, 1)
+        }
+        .shadow(color: .black.opacity(0.2), radius: 10, y: 3)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { app.showPlayer = true }
     }
 
     private var progress: CGFloat {
@@ -68,6 +139,7 @@ struct FullPlayerView: View {
     @State private var dragOffset: CGFloat = 0
     @State private var coverColor: Color = .gray
     @State private var lyrics: Lyrics = .none
+    @State private var waveform: [Float] = []
 
     var body: some View {
         GeometryReader { geo in
@@ -78,18 +150,17 @@ struct FullPlayerView: View {
                     VStack(spacing: 0) {
                         topBar
                         Spacer(minLength: 12)
-                        entry.song.artwork(artSize)
-                            .scaleEffect(app.player.isPlaying ? 1 : 0.88)
-                            .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
-                            .animation(.spring(response: 0.45, dampingFraction: 0.75), value: app.player.isPlaying)
-                            .id(entry.id)
+                        art(entry, size: artSize)
+                            .id("\(entry.id)-\(app.prefs.data.playerStyle.rawValue)")
                             .transition(.asymmetric(insertion: .scale(scale: 0.9).combined(with: .opacity), removal: .opacity))
                         Spacer(minLength: 16)
-                        titleRow(entry.song)
+                        if app.prefs.data.playerStyle != .minimal { titleRow(entry.song) }
                         scrubber.padding(.top, 14)
                         controls.padding(.top, 4)
                         bottomRow.padding(.top, 8)
-                        if app.prefs.data.lyricsEnabled && !lyrics.lines.isEmpty { lyricsPeek.padding(.top, 10) }
+                        if app.prefs.data.lyricsEnabled && !lyrics.lines.isEmpty && app.prefs.data.playerStyle != .lyrics {
+                            lyricsPeek.padding(.top, 10)
+                        }
                         Spacer(minLength: 8)
                     }
                     .padding(.horizontal, 24)
@@ -112,11 +183,60 @@ struct FullPlayerView: View {
         .task(id: app.player.currentID) { await loadForCurrent() }
     }
 
+    /// The big middle part of the player, in the chosen style.
+    @ViewBuilder
+    private func art(_ entry: LibraryEntry, size: CGFloat) -> some View {
+        switch app.prefs.data.playerStyle {
+        case .classic:
+            entry.song.artwork(size)
+                .scaleEffect(app.player.isPlaying ? 1 : 0.88)
+                .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
+                .animation(.spring(response: 0.45, dampingFraction: 0.75), value: app.player.isPlaying)
+        case .vinyl:
+            VinylView(song: entry.song, size: size)
+        case .cassette:
+            CassetteView(song: entry.song, size: size)
+        case .minimal:
+            VStack(alignment: .leading, spacing: 10) {
+                Spacer(minLength: 0)
+                Button { if let a = entry.song.album, a.id > 0 { app.navigate(.album(a)) } } label: {
+                    Text(entry.song.title)
+                        .font(.system(size: 52, weight: .black))
+                        .lineLimit(4).minimumScaleFactor(0.45)
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                Button { app.navigate(.artist(entry.song.artist)) } label: {
+                    Text(entry.song.artistLine).font(.title2.weight(.semibold)).foregroundStyle(look.accent).lineLimit(2)
+                }
+                .buttonStyle(.plain)
+                if let album = entry.song.album?.title {
+                    Text(album).font(.headline).foregroundStyle(.secondary).lineLimit(1)
+                }
+                HStack {
+                    Spacer()
+                    let liked = app.library.isLiked(entry.id)
+                    Button { app.library.toggleLike(entry.song) } label: {
+                        Image(systemName: liked ? "heart.fill" : "heart").font(.title2)
+                            .foregroundStyle(liked ? look.accent : .primary).symbolEffect(.bounce, value: liked)
+                    }
+                    .accessibilityLabel(liked ? "Remove from Liked songs" : "Like")
+                }
+            }
+            .frame(width: size, height: size, alignment: .bottomLeading)
+        case .lyrics:
+            LyricsPanel(lyrics: lyrics, offset: entry.lyricsOffset, accent: coverColor)
+                .frame(height: size)
+        }
+    }
+
     private func loadForCurrent() async {
         guard let e = app.player.current else { return }
         if let c = await DominantColor.color(for: e.song) { withAnimation(.easeInOut(duration: 0.6)) { coverColor = c } }
+        waveform = AnalysisCache.load(e.id)?.waveform(bars: 48) ?? []
         lyrics = .none
-        if app.prefs.data.lyricsEnabled {
+        if app.prefs.data.lyricsEnabled || app.prefs.data.playerStyle == .lyrics {
             if let cached = LyricsService.cached(e.id) { lyrics = cached }
             else if app.network.isOnline && !app.prefs.data.offline { lyrics = await LyricsService.fetch(e.song) }
         }
@@ -205,11 +325,14 @@ struct FullPlayerView: View {
         return VStack(spacing: 6) {
             GeometryReader { geo in
                 let frac = p.duration > 0 ? CGFloat(min(1, max(0, shown / p.duration))) : 0
+                let style = app.prefs.data.progressStyle
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.2)).frame(height: scrub == nil ? 4 : 8)
-                    Capsule().fill(Color.primary).frame(width: geo.size.width * frac, height: scrub == nil ? 4 : 8)
-                    Circle().fill(Color.primary).frame(width: scrub == nil ? 12 : 18, height: scrub == nil ? 12 : 18)
-                        .offset(x: geo.size.width * frac - (scrub == nil ? 6 : 9))
+                    ProgressBarArt(style: style, fraction: Double(frac), waveform: waveform, playing: p.isPlaying, active: scrub != nil)
+                    if style == .line || style == .thick || style == .squiggle {
+                        Circle().fill(style == .line ? Color.primary : look.accent)
+                            .frame(width: scrub == nil ? 12 : 18, height: scrub == nil ? 12 : 18)
+                            .offset(x: geo.size.width * frac - (scrub == nil ? 6 : 9))
+                    }
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -224,7 +347,7 @@ struct FullPlayerView: View {
                         withAnimation(.spring(duration: 0.25)) { scrub = nil }
                     })
             }
-            .frame(height: 22)
+            .frame(height: app.prefs.data.progressStyle == .waveform ? 34 : 22)
             HStack {
                 Text(Fmt.time(shown))
                 Spacer()
@@ -542,6 +665,7 @@ struct LyricsView: View {
             .padding(.horizontal, 22).padding(.top, 16)
             .foregroundStyle(.white)
         }
+        .onAppear { app.bump("lyricsOpened") }
         .task(id: p.currentID) {
             guard let s = p.currentSong else { lyrics = Lyrics.none; return }
             if let c = await DominantColor.color(for: s) { withAnimation { color = c } }
@@ -758,5 +882,53 @@ struct VideoPlayerView: View {
             if diff < -20 || diff > 180 { s -= 4 } // music videos can have intros, but not be much shorter
         }
         return s
+    }
+}
+
+
+/// The big lyrics view inside the player's "Lyrics first" style.
+private struct LyricsPanel: View {
+    let lyrics: Lyrics
+    let offset: Double
+    let accent: Color
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let p = app.player
+        let current = lyrics.index(at: p.position + offset)
+        Group {
+            if lyrics.lines.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "quote.bubble").font(.largeTitle).foregroundStyle(.secondary)
+                    Text(lyrics.instrumental ? "Instrumental" : "No lyrics for this song").font(.headline).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { i, line in
+                                Text(line.text.isEmpty ? "♪" : line.text)
+                                    .font(.system(size: 26, weight: .heavy))
+                                    .foregroundStyle(.primary)
+                                    .opacity(!lyrics.synced ? 1 : (i == current ? 1 : 0.35))
+                                    .scaleEffect(i == current ? 1 : 0.96, anchor: .leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(i)
+                                    .onTapGesture { if let t = line.time { p.seek(to: t - offset) } }
+                            }
+                        }
+                        .padding(.vertical, 60)
+                        .animation(.spring(duration: 0.4), value: current)
+                    }
+                    .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.15),
+                                                 .init(color: .black, location: 0.85), .init(color: .clear, location: 1)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .onChange(of: current) { _, new in
+                        if let new { withAnimation(.spring(duration: 0.6)) { proxy.scrollTo(new, anchor: .center) } }
+                    }
+                }
+            }
+        }
     }
 }
