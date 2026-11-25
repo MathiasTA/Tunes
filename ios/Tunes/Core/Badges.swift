@@ -85,6 +85,17 @@ enum Badges {
         BadgeDef(id: "lyricist", name: "Sing Along", icon: "music.mic.circle.fill", blurb: "Times you've opened the lyrics.", unit: "times", tiers: [5, 50, 200]),
         BadgeDef(id: "veteran", name: "Veteran", icon: "calendar.circle.fill", blurb: "Days since your first play.", unit: "days", tiers: [7, 60, 365]),
         BadgeDef(id: "puzzler", name: "Puzzler", icon: "puzzlepiece.extension.fill", blurb: "Your longest streak of daily games.", unit: "days", tiers: [3, 7, 30]),
+        BadgeDef(id: "wordWizard", name: "Word Wizard", icon: "square.grid.3x3.fill", blurb: "Tunedle puzzles solved.", unit: "wins", tiers: [5, 25, 100]),
+        BadgeDef(id: "perfectPitch", name: "Perfect Pitch", icon: "ear.fill", blurb: "Earworms named from the 1-second clip.", unit: "songs", tiers: [1, 5, 20]),
+        BadgeDef(id: "connected", name: "Connected", icon: "circle.grid.2x2.fill", blurb: "Connections solved without a mistake.", unit: "puzzles", tiers: [1, 10, 50]),
+        BadgeDef(id: "higherGround", name: "Higher Ground", icon: "arrow.up.arrow.down.circle.fill", blurb: "Your best Higher or lower run.", unit: "in a row", tiers: [5, 10, 20]),
+        BadgeDef(id: "eagleEye", name: "Eagle Eye", icon: "eye.fill", blurb: "Cover Story right on the first try.", unit: "covers", tiers: [3, 15, 50]),
+        BadgeDef(id: "lyricLegend", name: "Lyric Legend", icon: "text.quote", blurb: "Finish the lyric with all 3 right.", unit: "games", tiers: [1, 10, 30]),
+        BadgeDef(id: "timekeeper", name: "Timekeeper", icon: "hourglass", blurb: "Timelines right on the first check.", unit: "games", tiers: [1, 10, 30]),
+        BadgeDef(id: "sherlock", name: "Sherlock", icon: "magnifyingglass.circle.fill", blurb: "Song Detective solved in 3 guesses or fewer.", unit: "cases", tiers: [1, 5, 20]),
+        BadgeDef(id: "noLifelines", name: "No Lifelines", icon: "hand.raised.slash.fill", blurb: "Daily puzzles solved without a lifeline.", unit: "puzzles", tiers: [5, 25, 100]),
+        BadgeDef(id: "gameNight", name: "Game Night", icon: "gamecontroller.fill", blurb: "Games played.", unit: "games", tiers: [25, 100, 500]),
+        BadgeDef(id: "dailySweep", name: "Daily Sweep", icon: "checkmark.seal.fill", blurb: "Days you solved every daily puzzle.", unit: "days", tiers: [1, 5, 20]),
     ]
 
     /// Works out every badge's current value. Runs in a few milliseconds even with big histories.
@@ -142,6 +153,17 @@ enum Badges {
             case "lyricist": return counters["lyricsOpened"] ?? 0
             case "veteran": return firstPlay.map { cal.dateComponents([.day], from: $0, to: .now).day ?? 0 } ?? 0
             case "puzzler": return app.prefs.data.games.values.map(\.bestStreak).max() ?? 0
+            case "wordWizard": return counters["tunedleWins"] ?? 0
+            case "perfectPitch": return counters["earwormOneSecond"] ?? 0
+            case "connected": return counters["connectionsPerfect"] ?? 0
+            case "higherGround": return counters["higherLowerBest"] ?? 0
+            case "eagleEye": return counters["coverFirstTry"] ?? 0
+            case "lyricLegend": return counters["lyricPerfect"] ?? 0
+            case "timekeeper": return counters["timelineFirstCheck"] ?? 0
+            case "sherlock": return counters["detectiveQuick"] ?? 0
+            case "noLifelines": return counters["noLifelines"] ?? 0
+            case "gameNight": return counters["gamesPlayed"] ?? 0
+            case "dailySweep": return counters["dailySweep"] ?? 0
             default: return 0
             }
         }

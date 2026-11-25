@@ -38,10 +38,10 @@ final class AppModel {
     func coverChanged() {
         checkBadges() // a song just changed: a good moment to check (stats moved on)
         if prefs.data.theme == .pulse, let id = player.currentID {
-            let mood = AnalysisCache.load(id)?.mood ?? 0.5
+            let mood = MoodIndex.shared.rank(id, fallback: AnalysisCache.load(id)?.mood ?? 0.5)
             if abs(mood - pulseMood) > 0.01 { withAnimation(.easeInOut(duration: 1.5)) { pulseMood = mood } }
         }
-        guard prefs.data.theme == .dynamic, let song = player.currentSong else { return }
+        guard prefs.data.theme == .dynamic || prefs.data.theme == .pulse, let song = player.currentSong else { return }
         Task {
             guard let img = await ImageCache.shared.image(local: song.localArtworkURL, remote: song.artworkURL, maxPixel: 120),
                   let colors = await CoverColors.extract(from: img), player.currentSong?.id == song.id else { return }

@@ -491,6 +491,7 @@ final class Library {
         Task {
             guard let a = await AudioAnalysis.analyze(url) else { return }
             AnalysisCache.save(a, id: id)
+            MoodIndex.shared.set(a.mood, for: id)
             update(id) { entry in
                 entry.loudnessDB = a.loudnessDB
                 entry.highlightStart = a.highlightStart
@@ -508,9 +509,13 @@ final class Library {
         let missing = entries.filter { redoAll || $0.loudnessDB == nil || !AnalysisCache.exists($0.id) }
         Task {
             for e in missing where FileManager.default.fileExists(atPath: e.fileURL.path) {
-                if redoAll, e.loudnessDB != nil, AnalysisCache.load(e.id)?.bpm != nil { continue } // already done
+                if redoAll, e.loudnessDB != nil, let done = AnalysisCache.load(e.id), done.bpm != nil {
+                    MoodIndex.shared.set(done.mood, for: e.id)
+                    continue
+                }
                 guard let a = await AudioAnalysis.analyze(e.fileURL) else { continue }
                 AnalysisCache.save(a, id: e.id)
+                MoodIndex.shared.set(a.mood, for: e.id)
                 update(e.id) { entry in
                     entry.loudnessDB = a.loudnessDB
                     entry.highlightStart = a.highlightStart
@@ -540,5 +545,34 @@ enum AnalysisCache {
         guard FileManager.default.fileExists(atPath: file.path), let a = await AudioAnalysis.analyze(file) else { return nil }
         save(a, id: id)
         return a
+    }
+}
+
+
+/// Every song's mood, so Pulse can rank a song against the rest of your library: your calmest songs get the
+/// calmest colors and your most energetic the hottest, whatever your taste.
+@MainActor
+final class MoodIndex {
+    static let shared = MoodIndex()
+    private var moods: [Int: Double] = Store.load([Int: Double].self, "moods.json") ?? [:]
+    private var sorted: [Double]?
+
+    func set(_ mood: Double, for id: Int) {
+        guard moods[id] != mood else { return }
+        moods[id] = mood
+        sorted = nil
+        Store.save(moods, "moods.json")
+    }
+
+    /// 0 = your calmest song, 1 = your most energetic. Falls back to the song's own mood with a small library.
+    func rank(_ id: Int, fallback: Double) -> Double {
+        guard moods.count >= 8, let m = moods[id] else { return fallback }
+        let list = sorted ?? moods.values.sorted()
+        sorted = list
+        var lo = 0, hi = list.count
+        while lo < hi { let mid = (lo + hi) / 2; if list[mid] < m { lo = mid + 1 } else { hi = mid } }
+        let pct = Double(lo) / Double(max(1, list.count - 1))
+        // Mostly the rank, a little of the song's own mood so extremes still feel extreme.
+        return min(1, max(0, 0.8 * pct + 0.2 * m))
     }
 }

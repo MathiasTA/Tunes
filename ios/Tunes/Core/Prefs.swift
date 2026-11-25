@@ -274,6 +274,8 @@ struct PrefsData: Codable, Equatable {
     var songOfDay: [String: Int] = [:]
     /// Daily game results and streaks.
     var games: [String: GameRecord] = [:]
+    /// Moves made in today's daily puzzles ("tunedle|2026-11-25" → moves), so leaving doesn't reset them.
+    var gameProgress: [String: [String]] = [:]
     /// Dice block on Home: where its songs come from.
     var diceSource: DiceSource = .anything
     var diceArtist: Artist?
@@ -339,7 +341,7 @@ struct PrefsData: Codable, Equatable {
         weatherUseLocation = v(.weatherUseLocation, d.weatherUseLocation); weatherCity = v(.weatherCity, d.weatherCity)
         birthdayMonth = v(.birthdayMonth, d.birthdayMonth); birthdayDay = v(.birthdayDay, d.birthdayDay)
         diceSource = v(.diceSource, d.diceSource)
-        songOfDay = v(.songOfDay, d.songOfDay); games = v(.games, d.games)
+        songOfDay = v(.songOfDay, d.songOfDay); games = v(.games, d.games); gameProgress = v(.gameProgress, d.gameProgress)
         diceArtist = try? c.decodeIfPresent(Artist.self, forKey: .diceArtist)
         dicePlaylistID = try? c.decodeIfPresent(UUID.self, forKey: .dicePlaylistID)
         home = v(.home, d.home); homeCharts = v(.homeCharts, d.homeCharts)
@@ -707,4 +709,7 @@ struct GameRecord: Codable, Hashable {
     var bestStreak = 0
     var played = 0
     var won = 0
+    /// How today's daily ended, for "See your answer".
+    var lastHeadline: String?
+    var lastDetail: String?
 }

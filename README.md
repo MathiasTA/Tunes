@@ -40,7 +40,7 @@ Free. No account. No ads. Everything stays on your phone.
 - A listening calendar showing every day you played music
 - Your charts: a personal weekly top 20 and a rank race of your favorite songs
 - Weekly and monthly recaps, song of the day, and "on this day" memories
-- Daily music games built from your own library, like Tunedle, Connections and Earworm
+- Daily music games built from your own library, like Tunedle, Connections, Earworm and Song Detective, with lifelines and badges
 - An animated Wrapped, with music playing along and a quiz on your #1 song
 - A shareable Wrapped card you can design yourself
 - Import your Spotify history, so your stats go back years

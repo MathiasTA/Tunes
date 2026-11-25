@@ -49,6 +49,10 @@ struct PulseFrame {
     var sway: Double = 0
     var beat: Double = 0
     var mood: Double = 0.5
+    /// The cover's main color, mixed into the shapes so every song looks a little different.
+    var tint: Color?
+    /// Per-song shape variation, 0...1 each.
+    var v1 = 0.5, v2 = 0.5, v3 = 0.5
 }
 
 @MainActor
@@ -58,6 +62,7 @@ final class PulseMeter {
     private var analysis: AudioAnalysis?
     private var frame = PulseFrame()
     private var speed: Double = 0.08
+    private var targetMood = 0.5
     private var last = Date.distantPast
 
     func frame(at date: Date, moving: Bool) -> PulseFrame {
@@ -65,11 +70,15 @@ final class PulseMeter {
         if p.currentID != songID {
             songID = p.currentID
             analysis = songID.flatMap { AnalysisCache.load($0) }
+            targetMood = songID.map { MoodIndex.shared.rank($0, fallback: analysis?.mood ?? 0.5) } ?? 0.5
+            let seed = Double(songID ?? 0)
+            func r(_ k: Double) -> Double { let x = sin(seed * 12.9898 + k * 78.233) * 43758.5453; return x - floor(x) }
+            frame.v1 = r(1); frame.v2 = r(2); frame.v3 = r(3)
         }
+        frame.tint = AppModel.shared.coverColors?.accent
         let dt = min(0.1, max(0, date.timeIntervalSince(last)))
         last = date
         let a = analysis
-        let targetMood = a?.mood ?? 0.5
         guard moving else {
             frame.mood = targetMood
             return frame
@@ -820,16 +829,20 @@ enum EffectPainter {
     /// Pulse: mood-colored shapes orbiting at the song's tempo and swaying with the beat.
     static func pulse(_ gc: inout GraphicsContext, _ s: CGSize, _ f: PulseFrame) {
         let base = MoodColors.color(f.mood)
-        let hot = MoodColors.color(min(1, f.mood + 0.15))
+        var hot = MoodColors.color(min(1, f.mood + 0.15))
+        if let tint = f.tint { hot = hot.mixed(with: tint, by: 0.35) }
         let deep = MoodColors.color(max(0, f.mood - 0.35))
         gc.fill(Path(CGRect(origin: .zero, size: s)),
                 with: .linearGradient(Gradient(colors: [MoodColors.color(max(0, f.mood - 0.2), darken: 0.8), MoodColors.color(f.mood, darken: 0.9)]),
                                       startPoint: .zero, endPoint: CGPoint(x: s.width, y: s.height)))
-        let blobs: [(Color, Double, Double, Double, Double, Double, Double, Double)] = [
-            (base, 0.75, 0.35, 0.30, 0.18, 0.10, 1.0, 0),
-            (hot, 0.62, 0.68, 0.72, 0.16, 0.12, -0.8, 2),
-            (deep, 0.55, 0.60, 0.40, 0.22, 0.18, 0.6, 4),
+        // Each song gets its own sizes, paths and number of shapes.
+        let size = 0.8 + 0.4 * f.v1, path = 0.7 + 0.7 * f.v2
+        var blobs: [(Color, Double, Double, Double, Double, Double, Double, Double)] = [
+            (base, 0.75 * size, 0.35, 0.30, 0.18 * path, 0.10 * path, 1.0, f.v3 * 6),
+            (hot, 0.62 * size, 0.68, 0.72, 0.16 * path, 0.12 * path, -0.8, 2 + f.v1 * 4),
+            (deep, 0.55 * size, 0.60, 0.40, 0.22 * path, 0.18 * path, 0.6, 4 + f.v2 * 3),
         ]
+        if f.v3 > 0.5 { blobs.append((f.tint ?? hot, 0.45 * size, 0.2 + 0.6 * f.v1, 0.85, 0.2 * path, 0.08, -1.2, f.v2 * 5)) }
         let a0 = 0.10 + 0.16 * f.level
         for (i, b) in blobs.enumerated() {
             let ang = f.orbit * 2 * .pi * b.6 + b.7
@@ -840,7 +853,7 @@ enum EffectPainter {
                     with: .radialGradient(Gradient(colors: [b.0.opacity(a0 + (i == 0 ? 0.1 : 0.05)), .clear]),
                                           center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r))
         }
-        for k in 0..<3 {
+        for k in 0..<(2 + Int(f.v1 * 2.99)) {
             let kk = Double(k)
             var p = Path()
             var x = 0.0
