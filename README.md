@@ -37,6 +37,7 @@ Free. No account. No ads. Everything stays on your phone.
 
 **Stats & Wrapped**
 - Your top artists, songs, genres and listening time, for any period
+- A listening calendar showing every day you played music
 - An animated Wrapped, with music playing along and a quiz on your #1 song
 - A shareable Wrapped card you can design yourself
 - Import your Spotify history, so your stats go back years
@@ -45,10 +46,11 @@ Free. No account. No ads. Everything stays on your phone.
 - A Home screen you arrange yourself: pick which sections show, in what order, and how each one looks
 - Player styles, including a vinyl record you can spin back by hand, a cassette with turning reels, and a lyrics-first player
 - Progress bar and mini player styles, fonts, and any accent color
-- Over 20 themes, including animated ones, **Dynamic** (colors from the song that's playing) and **Horizon** (follows the sky from sunrise to night)
+- Over 40 themes, including animated ones and alive themes that change by themselves: with the song that's playing, the sky, the weather outside, the seasons and holidays, the music's energy, tonight's moon, your battery and your listening streak
 - Playlist covers: your own photo, album collages, gradients or emoji
 - 12 app icons
-- Badges to earn in bronze, silver and gold, which you can show off on your Home screen
+- Badges to earn in bronze, silver and gold, which you can show off on your Home screen and which unlock special medal themes
+- A dice button on Home that plays a random song from your library, favorites, an artist or a playlist
 - Private listening, offline mode and automatic backups to iCloud Drive
 
 ## Where the music comes from
