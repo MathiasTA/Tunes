@@ -42,17 +42,17 @@ struct PlaylistView: View {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .bottom, spacing: 16) {
-                        Button { pickingCover = true } label: {
+                        Menu { coverMenu(p) } label: {
                             PlaylistTile(playlist: p, size: 140)
                                 .overlay(alignment: .bottomTrailing) {
-                                    Image(systemName: "camera.fill").font(.caption.weight(.bold))
+                                    Image(systemName: "photo.artframe").font(.caption.weight(.bold))
                                         .padding(7).background(.black.opacity(0.45), in: Circle()).foregroundStyle(.white)
                                         .padding(6)
                                 }
                         }
                         .buttonStyle(PressStyle())
                         .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
-                        .accessibilityLabel("Change cover photo")
+                        .accessibilityLabel("Change cover")
                         VStack(alignment: .leading, spacing: 6) {
                             if let b = p.badge {
                                 Text(b).font(.system(size: 10, weight: .heavy)).padding(.horizontal, 6).padding(.vertical, 3)
@@ -172,21 +172,7 @@ struct PlaylistView: View {
     private func menuItems(_ p: Playlist) -> some View {
         Button { app.playlists.togglePin(p.id) } label: { Label(p.pinned ? "Unpin" : "Pin to top", systemImage: "pin") }
         Button { newName = p.name; renaming = true } label: { Label("Rename", systemImage: "pencil") }
-        Menu {
-            Button { pickingCover = true } label: { Label(p.coverVersion == nil ? "Choose photo…" : "Change photo…", systemImage: "photo") }
-            ForEach([PlaylistCover.collage, .album, .gradient, .color]) { c in
-                Button { setStyle(c, for: p) } label: {
-                    Label(c.label, systemImage: p.effectiveCover == c ? "checkmark" : c.icon)
-                }
-            }
-            Button { emojiText = p.coverEmoji ?? ""; choosingEmoji = true } label: {
-                Label("Emoji…", systemImage: p.effectiveCover == .emoji ? "checkmark" : "face.smiling")
-            }
-            Button { shuffleColor(p) } label: { Label("New color", systemImage: "paintpalette") }
-            if p.coverVersion != nil {
-                Button(role: .destructive) { setCover(nil, for: p) } label: { Label("Remove photo", systemImage: "photo.badge.minus") }
-            }
-        } label: { Label("Cover", systemImage: "photo.artframe") }
+
         if case .auto = p.kind {
             Button { app.sheet = .autoPlaylist(p.id) } label: { Label("Change rules", systemImage: "slider.horizontal.3") }
         }
@@ -205,6 +191,24 @@ struct PlaylistView: View {
             } label: { Label("Copy as text", systemImage: "doc.on.doc") }
         } label: { Label("Export playlist", systemImage: "square.and.arrow.up") }
         Button(role: .destructive) { app.playlists.delete(p.id); app.navigateBack() } label: { Label("Delete playlist", systemImage: "trash") }
+    }
+
+    /// Everything for the cover, opened by tapping the cover itself.
+    @ViewBuilder
+    private func coverMenu(_ p: Playlist) -> some View {
+            Button { pickingCover = true } label: { Label(p.coverVersion == nil ? "Choose photo…" : "Change photo…", systemImage: "photo") }
+            ForEach([PlaylistCover.collage, .album, .gradient, .color]) { c in
+                Button { setStyle(c, for: p) } label: {
+                    Label(c.label, systemImage: p.effectiveCover == c ? "checkmark" : c.icon)
+                }
+            }
+            Button { emojiText = p.coverEmoji ?? ""; choosingEmoji = true } label: {
+                Label("Emoji…", systemImage: p.effectiveCover == .emoji ? "checkmark" : "face.smiling")
+            }
+            Button { shuffleColor(p) } label: { Label("New color", systemImage: "paintpalette") }
+            if p.coverVersion != nil {
+                Button(role: .destructive) { setCover(nil, for: p) } label: { Label("Remove photo", systemImage: "photo.badge.minus") }
+            }
     }
 
     private func setStyle(_ c: PlaylistCover, for p: Playlist) {

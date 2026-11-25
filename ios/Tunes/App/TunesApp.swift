@@ -92,12 +92,16 @@ struct RootView: View {
                 .tint(look.accent)
                 .toggleStyle(TunesToggleStyle())
                 .appFont(app.prefs.data.font)
+                // Sheets keep their own light/dark mode, so they follow theme changes right away (e.g. in Settings).
+                .preferredColorScheme(app.prefs.colorScheme(for: look))
         }
         .fullScreenCover(isPresented: Binding(get: { !app.prefs.data.onboarded }, set: { _ in })) {
             WelcomeView().environment(app).environment(\.look, look).tint(look.accent)
+                .preferredColorScheme(app.prefs.colorScheme(for: look))
         }
         .fullScreenCover(isPresented: $app.showWrapped) {
             WrappedView().environment(app).environment(\.look, look).tint(look.accent).toggleStyle(TunesToggleStyle())
+                .preferredColorScheme(app.prefs.colorScheme(for: look))
         }
         .onChange(of: app.player.message) { _, msg in
             guard let msg else { return }

@@ -202,6 +202,8 @@ struct ProgressBarArt: View {
     var waveform: [Float] = []
     var playing = true
     var active = false
+    /// A still picture of the style (for the picker in Appearance).
+    var preview = false
     @Environment(\.look) private var look
 
     var body: some View {
@@ -217,26 +219,45 @@ struct ProgressBarArt: View {
                 }
                 .frame(height: h)
             case .waveform:
-                let bars = waveform.isEmpty ? Self.placeholder : waveform
-                HStack(alignment: .center, spacing: 2) {
-                    ForEach(bars.indices, id: \.self) { i in
-                        let played = CGFloat(i) / CGFloat(max(bars.count - 1, 1)) <= f
+                // As many bars as fit nicely (about one per 4–5 points), sampled from the song's real shape.
+                let source = waveform.isEmpty ? Self.placeholder : waveform
+                let count = max(8, min(source.count, Int(w / 4.5)))
+                let spacing: CGFloat = w < 120 ? 1.5 : 2
+                HStack(alignment: .center, spacing: spacing) {
+                    ForEach(0..<count, id: \.self) { i in
+                        let v = source[min(source.count - 1, i * source.count / count)]
+                        let played = CGFloat(i) / CGFloat(max(count - 1, 1)) <= f
                         Capsule().fill(played ? look.accent : Color.primary.opacity(0.22))
-                            .frame(height: max(3, CGFloat(bars[i]) * h))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: max(2, CGFloat(v) * h))
                     }
                 }
                 .frame(height: h)
             case .squiggle:
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing)) { ctx in
-                    let phase = ctx.date.timeIntervalSinceReferenceDate * 6
+                if preview {
+                    // A still sine wave: the played part in the accent color, the rest faint.
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color.primary.opacity(0.2)).frame(width: w, height: 4)
-                        Squiggle(phase: phase, amplitude: playing ? h * 0.28 : 0)
-                            .stroke(look.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                            .frame(width: w * f, height: h)
-                            .animation(.easeInOut(duration: 0.3), value: playing)
+                        Squiggle(phase: 0, amplitude: h * 0.3, wavelength: 5)
+                            .stroke(Color.primary.opacity(0.18), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        Squiggle(phase: 0, amplitude: h * 0.3, wavelength: 5)
+                            .stroke(look.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .mask(alignment: .leading) { Rectangle().frame(width: w * f) }
                     }
                     .frame(height: h)
+                } else {
+                    TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing)) { ctx in
+                        let phase = ctx.date.timeIntervalSinceReferenceDate * 6
+                        ZStack(alignment: .leading) {
+                            // Only a very faint guide for the part still to play.
+                            Capsule().fill(Color.primary.opacity(0.1)).frame(height: 2)
+                                .padding(.leading, w * f)
+                            Squiggle(phase: phase, amplitude: playing ? h * 0.28 : 0)
+                                .stroke(look.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                                .frame(width: w * f, height: h)
+                                .animation(.easeInOut(duration: 0.3), value: playing)
+                        }
+                        .frame(height: h)
+                    }
                 }
             case .dots:
                 let count = max(8, Int(w / 9))
@@ -265,6 +286,8 @@ struct ProgressBarArt: View {
 struct Squiggle: Shape {
     var phase: Double
     var amplitude: CGFloat
+    /// Points per radian: smaller means tighter waves.
+    var wavelength: Double = 7
     var animatableData: CGFloat {
         get { amplitude }
         set { amplitude = newValue }
@@ -276,7 +299,7 @@ struct Squiggle: Shape {
         p.move(to: CGPoint(x: 0, y: mid))
         var x: CGFloat = 0
         while x <= rect.width {
-            p.addLine(to: CGPoint(x: x, y: mid + sin(Double(x) / 7 - phase) * amplitude))
+            p.addLine(to: CGPoint(x: x, y: mid + sin(Double(x) / wavelength - phase) * amplitude))
             x += 2
         }
         return p

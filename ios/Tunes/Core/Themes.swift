@@ -8,8 +8,8 @@ import UIKit
 enum ThemeMode: String, Codable, CaseIterable, Identifiable {
     case dark, black, light, auto
     case dynamic, horizon
-    case midnight, sunset, ocean, forest, rose, synthwave, matcha, coffee, arctic, graphite
-    case aurora, nebula, lava, lagoon, pastel
+    case midnight, sunset, ocean, forest, rose, synthwave, matcha, coffee, arctic, graphite, vapor, abyss
+    case aurora, nebula, lava, lagoon, pastel, fireflies, tide, warp
     var id: String { rawValue }
 
     var label: String {
@@ -28,17 +28,18 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
     static let groups: [(String, [ThemeMode])] = [
         ("Classic", [.dark, .black, .light, .auto]),
         ("Alive", [.dynamic, .horizon]),
-        ("Gradients", [.midnight, .sunset, .ocean, .forest, .rose, .synthwave, .matcha, .coffee, .arctic, .graphite]),
-        ("Animated", [.aurora, .nebula, .lava, .lagoon, .pastel]),
+        ("Gradients", [.midnight, .sunset, .ocean, .forest, .rose, .synthwave, .vapor, .abyss, .matcha, .coffee, .arctic, .graphite]),
+        ("Animated", [.aurora, .nebula, .fireflies, .tide, .warp, .lava, .lagoon, .pastel]),
     ]
 
     /// Static look of the gradient and animated themes.
     var palette: ThemePalette? {
         func p(_ colors: [String], bar: String, scheme: ColorScheme = .dark, glow: [String] = [], accent: String,
-               lights: [String] = [], opacity: Double = 0.3, seconds: Double = 18, stars: Bool = false, grid: Bool = false) -> ThemePalette {
+               lights: [String] = [], opacity: Double = 0.3, seconds: Double = 18, stars: Bool = false, grid: Bool = false,
+               effect: ThemeEffect = .none, sun: Bool = false, starColor: String = "#FFFFFF") -> ThemePalette {
             ThemePalette(colors: colors.map { Color(hex: $0) }, bar: Color(hex: bar), scheme: scheme, glow: glow.map { Color(hex: $0) },
                     lights: lights.map { Color(hex: $0) }, lightOpacity: opacity, lightSeconds: seconds, stars: stars, grid: grid,
-                    accent: Color(hex: accent), accentHex: accent)
+                    accent: Color(hex: accent), accentHex: accent, effect: effect, sun: sun, starColor: Color(hex: starColor))
         }
         switch self {
         case .midnight: return p(["#0B1026", "#1B1446", "#2E1458"], bar: "#0D1130", glow: ["#6366F1", "#C084FC"], accent: "#A78BFA")
@@ -51,6 +52,16 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
         case .matcha: return p(["#F4F9EC", "#E3F0CF", "#C9E2A8"], bar: "#F2F8E9", scheme: .light, glow: ["#A3D977", "#FDE68A"], accent: "#4D7C0F")
         case .coffee: return p(["#140D09", "#2E2019", "#4A3326"], bar: "#17100B", glow: ["#D4A373", "#B5651D"], accent: "#E0B583")
         case .arctic: return p(["#F0F9FF", "#E0F2FE", "#DBEAFE"], bar: "#F2FAFF", scheme: .light, glow: ["#7DD3FC", "#C4B5FD"], accent: "#0284C7")
+        case .vapor:
+            return p(["#FBD3E9", "#C9B6F2", "#9FE7F5"], bar: "#F8E1F0", scheme: .light, glow: ["#FF71CE", "#01CDFE"], accent: "#B026FF", sun: true)
+        case .abyss:
+            return p(["#010B13", "#022235", "#04364A"], bar: "#021019", glow: ["#00F5D4", "#3A86FF"], accent: "#00F5D4", stars: true, starColor: "#7FFFE8")
+        case .fireflies:
+            return p(["#030B07", "#071A10"], bar: "#05110A", glow: ["#14532D"], accent: "#D9F99D", effect: .fireflies)
+        case .tide:
+            return p(["#0B1026", "#0E2A47", "#0F4C5C"], bar: "#0B1A33", accent: "#5EEAD4", effect: .tide)
+        case .warp:
+            return p(["#05010F", "#0D0420"], bar: "#07021A", glow: ["#7C3AED"], accent: "#C4B5FD", effect: .warp)
         case .graphite: return p(["#0A0A0A", "#1A1A1A", "#2B2B2B"], bar: "#0E0E0E", glow: ["#6B7280", "#D1D5DB"], accent: "#E5E7EB")
         case .aurora: return p(["#050B14"], bar: "#070F1A", accent: "#34D399", lights: ["#10B981", "#8B5CF6", "#0EA5E9"], opacity: 0.32, seconds: 18)
         case .nebula: return p(["#07051A"], bar: "#0A0820", accent: "#E879F9", lights: ["#C026D3", "#4F46E5", "#06B6D4"], opacity: 0.28, seconds: 24, stars: true)
@@ -88,7 +99,14 @@ struct ThemePalette: Equatable {
     /// Accent the theme sets (Dynamic and Horizon always use theirs).
     var accent: Color?
     var accentHex: String?
+    /// Special moving scenes (fireflies, waves, stars flying by).
+    var effect: ThemeEffect = .none
+    /// A big retro sun with stripes (Vapor).
+    var sun = false
+    var starColor: Color = .white
 }
+
+enum ThemeEffect: Equatable { case none, fireflies, tide, warp }
 
 // MARK: - Horizon: a theme that follows the sky
 
@@ -267,7 +285,9 @@ struct ThemeBackground: View {
     var body: some View {
         Group {
             if let p = look.palette {
-                if !p.lights.isEmpty {
+                if p.effect != .none {
+                    AnimatedScene(palette: p).id(look.theme)
+                } else if !p.lights.isEmpty {
                     DriftingLights(palette: p).id(look.theme)
                 } else {
                     GlowGradient(palette: p)
@@ -298,8 +318,9 @@ private struct GlowGradient: View {
                     RadialGradient(colors: [palette.glow[1].opacity(light ? 0.30 : 0.22), .clear],
                                    center: UnitPoint(x: 0.1, y: 0.75), startRadius: 0, endRadius: max(w, h) * 0.6)
                 }
+                if palette.sun { RetroSun().frame(width: w * 0.7, height: w * 0.7).position(x: w * 0.5, y: h * 0.62) }
                 if palette.grid { RetroGrid(color: palette.glow.last ?? .cyan).frame(height: h * 0.38).frame(maxHeight: .infinity, alignment: .bottom) }
-                if palette.stars { Stars(count: 40, twinkle: false) }
+                if palette.stars { Stars(count: 40, twinkle: false, color: palette.starColor) }
                 LinearGradient(colors: [.clear, (light ? Color.white : Color.black).opacity(0.25)],
                                startPoint: UnitPoint(x: 0.5, y: 0.55), endPoint: .bottom)
             }
@@ -334,6 +355,7 @@ private struct RetroGrid: View {
 struct Stars: View {
     let count: Int
     let twinkle: Bool
+    var color: Color = .white
     @State private var on = false
 
     var body: some View {
@@ -346,7 +368,7 @@ struct Stars: View {
             ZStack {
                 ForEach(points.indices, id: \.self) { i in
                     let p = points[i]
-                    Circle().fill(.white)
+                    Circle().fill(color)
                         .frame(width: p.2, height: p.2)
                         .opacity(twinkle ? ((p.3 == on) ? 0.85 : 0.2) : 0.55)
                         .position(x: p.0, y: p.1)
@@ -397,5 +419,111 @@ extension View {
     /// Puts the current theme's background behind a screen.
     func themeBackground() -> some View {
         background { ThemeBackground().ignoresSafeArea() }
+    }
+}
+
+
+/// Vapor's sun: a soft gradient disc cut by horizontal stripes.
+private struct RetroSun: View {
+    var body: some View {
+        Circle()
+            .fill(LinearGradient(colors: [Color(hex: "#FFE66D"), Color(hex: "#FF71CE")], startPoint: .top, endPoint: .bottom))
+            .mask {
+                VStack(spacing: 0) {
+                    Rectangle().frame(maxHeight: .infinity)
+                    ForEach(0..<6, id: \.self) { i in
+                        Rectangle().fill(.clear).frame(height: CGFloat(2 + i * 2))
+                        Rectangle().frame(height: 10)
+                    }
+                }
+            }
+            .opacity(0.55)
+            .blur(radius: 1)
+    }
+}
+
+/// Fireflies, Tide and Warp: small scenes drawn 30 times a second (still when Animations is off).
+struct AnimatedScene: View {
+    let palette: ThemePalette
+    var still = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let moving = !still && !reduceMotion && AppModel.shared.prefs.data.animations
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !moving)) { ctx in
+            let t = moving ? ctx.date.timeIntervalSinceReferenceDate : 1000
+            Canvas { gc, size in
+                gc.fill(Path(CGRect(origin: .zero, size: size)),
+                        with: .linearGradient(Gradient(colors: palette.colors.count > 1 ? palette.colors : palette.colors + palette.colors),
+                                              startPoint: .zero, endPoint: CGPoint(x: size.width * 0.3, y: size.height)))
+                switch palette.effect {
+                case .fireflies: Self.fireflies(&gc, size, t, glow: palette.accent ?? .yellow)
+                case .tide: Self.tide(&gc, size, t, color: palette.accent ?? .teal)
+                case .warp: Self.warp(&gc, size, t, glow: palette.glow.first ?? .purple)
+                case .none: break
+                }
+            }
+        }
+    }
+
+    /// Glowing dots wandering slowly and pulsing, each on its own path.
+    static func fireflies(_ gc: inout GraphicsContext, _ size: CGSize, _ t: Double, glow: Color) {
+        var rng = SeededRNG(seed: 7)
+        for _ in 0..<28 {
+            let bx = Double.random(in: 0...1, using: &rng), by = Double.random(in: 0.15...1, using: &rng)
+            let sp = Double.random(in: 0.05...0.12, using: &rng), ph = Double.random(in: 0...6.28, using: &rng)
+            let x = (bx + 0.06 * sin(t * sp * 2 + ph) + 0.03 * sin(t * sp * 5 + ph * 2)) * size.width
+            let y = (by + 0.05 * cos(t * sp * 1.6 + ph)) * size.height
+            let pulse = 0.35 + 0.65 * max(0, sin(t * 0.9 + ph * 3))
+            let r = 2.2 + 1.2 * pulse
+            gc.fill(Path(ellipseIn: CGRect(x: x - r * 5, y: y - r * 5, width: r * 10, height: r * 10)),
+                    with: .radialGradient(Gradient(colors: [glow.opacity(0.35 * pulse), .clear]),
+                                          center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r * 5))
+            gc.fill(Path(ellipseIn: CGRect(x: x - r / 2, y: y - r / 2, width: r, height: r)), with: .color(glow.opacity(0.6 + 0.4 * pulse)))
+        }
+    }
+
+    /// Layers of slow waves rolling along the bottom of the screen.
+    static func tide(_ gc: inout GraphicsContext, _ size: CGSize, _ t: Double, color: Color) {
+        let layers = 4
+        for i in 0..<layers {
+            let k = Double(i)
+            let base = size.height * (0.55 + 0.1 * k)
+            let amp = 18.0 + 8 * k
+            let speed = 0.25 + 0.12 * k
+            var p = Path()
+            p.move(to: CGPoint(x: 0, y: size.height))
+            var x = 0.0
+            while x <= size.width + 8 {
+                let y = base + sin(x / (90 + 25 * k) + t * speed + k) * amp + sin(x / 41 - t * speed * 1.7) * amp * 0.25
+                p.addLine(to: CGPoint(x: x, y: y))
+                x += 8
+            }
+            p.addLine(to: CGPoint(x: size.width, y: size.height))
+            p.closeSubpath()
+            gc.fill(p, with: .color(color.opacity(0.08 + 0.05 * k)))
+        }
+    }
+
+    /// Stars streaming slowly out from the middle, like gliding through space.
+    static func warp(_ gc: inout GraphicsContext, _ size: CGSize, _ t: Double, glow: Color) {
+        let c = CGPoint(x: size.width / 2, y: size.height * 0.4)
+        gc.fill(Path(ellipseIn: CGRect(x: c.x - size.width * 0.6, y: c.y - size.width * 0.6, width: size.width * 1.2, height: size.width * 1.2)),
+                with: .radialGradient(Gradient(colors: [glow.opacity(0.25), .clear]), center: c, startRadius: 0, endRadius: size.width * 0.6))
+        var rng = SeededRNG(seed: 11)
+        let reach = hypot(size.width, size.height) * 0.6
+        for _ in 0..<90 {
+            let angle = Double.random(in: 0...(2 * .pi), using: &rng)
+            let offset = Double.random(in: 0...1, using: &rng)
+            let speed = Double.random(in: 0.04...0.09, using: &rng)
+            let d = (offset + t * speed).truncatingRemainder(dividingBy: 1) // 0 → 1, then starts over
+            let dist = d * d * reach
+            let x = c.x + cos(angle) * dist, y = c.y + sin(angle) * dist
+            let len = 2 + d * 14
+            var line = Path()
+            line.move(to: CGPoint(x: x, y: y))
+            line.addLine(to: CGPoint(x: x - cos(angle) * len, y: y - sin(angle) * len))
+            gc.stroke(line, with: .color(.white.opacity(0.15 + 0.7 * d)), lineWidth: 0.8 + d * 1.4)
+        }
     }
 }

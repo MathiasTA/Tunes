@@ -438,7 +438,7 @@ struct AppearanceView: View {
                 }
                 StylePicker(title: "Progress bar", options: ProgressStyle.allCases, selection: $prefs.data.progressStyle) { o in
                     VStack(spacing: 6) {
-                        ProgressBarArt(style: o, fraction: 0.6).frame(width: 64, height: 18)
+                        ProgressBarArt(style: o, fraction: 0.6, preview: true).frame(width: 70, height: 18)
                         Text(o.label).font(.caption2)
                     }
                 }
@@ -613,7 +613,9 @@ struct ThemeSwatch: View {
 
     @ViewBuilder private func paletteBackdrop(_ p: ThemePalette) -> some View {
         ZStack {
-            if p.lights.count >= 2 {
+            if p.effect != .none {
+                AnimatedScene(palette: p, still: true)
+            } else if p.lights.count >= 2 {
                 p.colors.first ?? .black
                 Circle().fill(p.lights[0].opacity(0.65)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
                 Circle().fill(p.lights[1].opacity(0.65)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
@@ -623,6 +625,10 @@ struct ThemeSwatch: View {
                     Circle().fill(g.opacity(0.5)).frame(width: 40).blur(radius: 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
+            }
+            if p.sun {
+                Circle().fill(LinearGradient(colors: [Color(hex: "#FFE66D"), Color(hex: "#FF71CE")], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 30, height: 30).opacity(0.7).offset(y: 10)
             }
             if p.stars { starDots }
             if p.grid { gridLines(p.glow.last ?? .cyan) }
