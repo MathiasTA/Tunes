@@ -627,34 +627,63 @@ struct VideoPlayerView: View {
     let song: Song
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.look) private var look
     @State private var player: AVPlayer?
     @State private var askData = false
     @State private var error: String?
     @State private var loading = false
+    @State private var videos: [VideoCandidate] = []
+    @State private var playingID: String?
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                ZStack {
-                    Color.black
-                    if let player {
-                        VideoPlayer(player: player)
-                    } else if loading {
-                        ProgressView().tint(.white)
-                    } else if let error {
-                        Text(error).foregroundStyle(.white).padding()
+            ScrollView {
+                VStack(spacing: 16) {
+                    ZStack {
+                        Color.black
+                        if let player {
+                            VideoPlayer(player: player)
+                        } else if loading {
+                            ProgressView().tint(.white)
+                        } else if let error {
+                            Text(error).foregroundStyle(.white).padding()
+                        }
+                    }
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(song.title).font(.title3.bold())
+                        Text(song.artistLine).foregroundStyle(.secondary)
+                        Text("Streamed from YouTube in standard quality, never saved. Your music pauses while you watch.")
+                            .font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+
+                    if videos.count > 1 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Not the right video?").font(.headline)
+                            ForEach(videos) { v in
+                                Button { Task { await play(v.id, remember: true) } } label: {
+                                    HStack(spacing: 10) {
+                                        AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(v.id)/mqdefault.jpg")) { img in
+                                            img.resizable().scaledToFill()
+                                        } placeholder: { Color.secondary.opacity(0.2) }
+                                        .frame(width: 96, height: 54)
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(v.title).font(.subheadline).foregroundStyle(.primary).lineLimit(2)
+                                            Text("\(v.channel) · \(Fmt.time(v.duration))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        }
+                                        Spacer(minLength: 0)
+                                        if v.id == playingID { Image(systemName: "play.fill").foregroundStyle(look.accent) }
+                                    }
+                                }
+                                .buttonStyle(PressStyle())
+                            }
+                        }
+                        .padding(.horizontal)
                     }
                 }
-                .aspectRatio(16 / 9, contentMode: .fit)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(song.title).font(.title3.bold())
-                    Text(song.artistLine).foregroundStyle(.secondary)
-                    Text("Streamed from YouTube in standard quality, never saved. Your music pauses while you watch.")
-                        .font(.caption).foregroundStyle(.secondary).padding(.top, 4)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                Spacer()
             }
             .navigationTitle("Video")
             .navigationBarTitleDisplayMode(.inline)
@@ -673,22 +702,61 @@ struct VideoPlayerView: View {
     }
 
     private var estimate: Int { max(5, Int((song.duration > 0 ? song.duration : 220) * 0.07)) }
+    private var rememberKey: String { "musicVideo-\(song.id)" }
 
     private func load() async {
         guard app.network.isOnline && !app.prefs.data.offline else { error = "You're offline."; return }
         loading = true
-        defer { loading = false }
         app.player.pause()
+        // The downloaded song is usually an audio-only upload (a still picture), so look for the real music video.
+        let found = (try? await YouTubeSearch.search("\(song.artist.name) \(song.title) official music video")) ?? []
+        let ranked = found.map { ($0, Self.videoScore($0, song: song)) }.filter { $0.1 > -5 }.sorted { $0.1 > $1.1 }
+        videos = Array(ranked.prefix(6).map(\.0))
+        // Use the video picked last time, else the best music video, else the downloaded upload.
+        var id = UserDefaults.standard.string(forKey: rememberKey)
+        if id == nil, let best = ranked.first, best.1 >= 2 { id = best.0.id }
+        if id == nil { id = app.library.entry(song.id)?.youTubeID }
+        if id == nil { id = try? await Matcher.match(song).best.id }
+        guard let id else { loading = false; error = YouTubeError.noVideo.localizedDescription; return }
+        await play(id, remember: false)
+    }
+
+    private func play(_ id: String, remember: Bool) async {
+        loading = true
+        defer { loading = false }
+        player?.pause()
+        player = nil
+        error = nil
         do {
-            var videoID = app.library.entry(song.id)?.youTubeID
-            if videoID == nil { videoID = try await Matcher.match(song).best.id }
-            guard let id = videoID else { throw YouTubeError.noVideo }
             let url = try await YouTubeMedia.videoURL(videoID: id, allowRemote: app.prefs.data.allowRemoteExtraction)
             let p = AVPlayer(url: url)
             player = p
+            playingID = id
+            if remember { UserDefaults.standard.set(id, forKey: rememberKey) }
             p.play()
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// How likely a search result is to be the song's actual music video.
+    static func videoScore(_ v: VideoCandidate, song: Song) -> Int {
+        let t = v.title.lowercased(), c = v.channel.lowercased()
+        let artist = song.artist.name.lowercased()
+        let songTitle = song.title.lowercased()
+        var s = 0
+        if t.contains(songTitle.prefix(20)) { s += 3 } else { s -= 3 }
+        if t.contains("official music video") || t.contains("official video") || t.contains("music video") { s += 4 }
+        if t.contains("(video)") || t.contains("[video]") || t.contains("mv") { s += 1 }
+        if c.contains("vevo") || c.contains(artist) { s += 2 }
+        if c.hasSuffix("- topic") { s -= 6 }
+        for bad in ["lyric", "audio", "visualizer", "visualiser", "reaction", "cover", "karaoke", "instrumental", "slowed", "sped up", "8d", "nightcore"]
+        where t.contains(bad) && !songTitle.contains(bad) { s -= 4 }
+        if t.contains("live") && !songTitle.contains("live") { s -= 2 }
+        if let d = v.duration, song.duration > 0 {
+            let diff = d - song.duration
+            if diff < -20 || diff > 180 { s -= 4 } // music videos can have intros, but not be much shorter
+        }
+        return s
     }
 }
