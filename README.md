@@ -43,10 +43,13 @@ Free. No account. No ads. Everything stays on your phone.
 
 **Make it yours**
 - A Home screen you arrange yourself: pick which sections show, in what order, and how each one looks
-- Themes, including gradients and animated ones like Aurora and Nebula
-- Accent colors and 12 app icons
-- Private listening and offline mode
-- Automatic backups to iCloud Drive
+- Player styles, including a vinyl record you can spin back by hand, a cassette with turning reels, and a lyrics-first player
+- Progress bar and mini player styles, fonts, and any accent color
+- Over 20 themes, including animated ones, **Dynamic** (colors from the song that's playing) and **Horizon** (follows the sky from sunrise to night)
+- Playlist covers: your own photo, album collages, gradients or emoji
+- 12 app icons
+- Badges to earn in bronze, silver and gold, which you can show off on your Home screen
+- Private listening, offline mode and automatic backups to iCloud Drive
 
 ## Where the music comes from
 
