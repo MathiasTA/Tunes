@@ -407,9 +407,10 @@ struct AppearanceView: View {
                 ThemeGrid()
                     .padding(.vertical, 6)
             } header: { Text("Theme") } footer: {
-                Text("Dynamic takes its colors from the cover that's playing. Horizon follows the sky through the day: dawn, sunrise, day, golden hour, sunset, dusk and night. Gradient and animated themes pick a matching accent color, which you can change below (Dynamic and Horizon always use their own). Black is pure black, which saves battery on most iPhones. Animated themes hold still when Animations is off.")
+                Text("Alive themes change by themselves: Dynamic with the cover that's playing, Horizon with the sky through the day, Weather with the weather outside, Seasons with the time of year and holidays, Pulse with the music, Moon with tonight's moon, Battery with your battery, and Streak with your daily listening streak. They always use their own accent color; the others pick a matching one you can change below. Medal themes unlock as you earn badges. Black is pure black, which saves battery on most iPhones. Moving themes hold still when Animations is off.")
             }
 .themedRow()
+            AliveThemeOptions()
             Section {
                 HStack {
                     ColorPicker("Custom", selection: Binding(get: { Color(hex: prefs.data.accentHex) },
@@ -522,28 +523,92 @@ struct AppearanceView: View {
 struct ThemeGrid: View {
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
+    /// Which groups are folded open ("∅" marks "you've chosen", so all-closed is remembered too).
+    @AppStorage("openThemeGroups") private var openRaw = ""
+
+    private var open: Set<String> {
+        if openRaw.isEmpty {
+            let current = ThemeMode.groups.first { $0.1.contains(app.prefs.data.theme) }?.0 ?? "Classic"
+            return [current]
+        }
+        return Set(openRaw.split(separator: ",").map(String.init).filter { $0 != "∅" })
+    }
+
+    private func toggle(_ group: String) {
+        var o = open
+        if o.contains(group) { o.remove(group) } else { o.insert(group) }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { openRaw = (["∅"] + o.sorted()).joined(separator: ",") }
+        app.haptic(.selection)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(ThemeMode.groups, id: \.0) { group in
+                let isOpen = open.contains(group.0)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(group.0.uppercased()).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
-                        ForEach(group.1) { theme in cell(theme) }
+                    Button { toggle(group.0) } label: {
+                        HStack(spacing: 8) {
+                            Text(group.0.uppercased()).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                            Text("\(group.1.count)").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                            if !isOpen, group.1.contains(app.prefs.data.theme) {
+                                Text(app.prefs.data.theme.label).font(.caption2.weight(.semibold)).foregroundStyle(look.accent)
+                            }
+                            Spacer()
+                            if !isOpen { previewDots(group.1) }
+                            Image(systemName: "chevron.down").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(isOpen ? 0 : -90))
+                        }
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(group.0) themes")
+                    .accessibilityValue(isOpen ? "Open" : "Closed")
+                    if isOpen {
+                        if group.0 == "Medals" {
+                            Text("Earn badges to unlock these.").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
+                            ForEach(group.1) { theme in cell(theme) }
+                        }
+                        .padding(.bottom, 6)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
             }
         }
     }
 
+    /// A few tiny swatches so closed groups still hint at what's inside.
+    private func previewDots(_ themes: [ThemeMode]) -> some View {
+        HStack(spacing: -4) {
+            ForEach(themes.prefix(5)) { t in
+                ThemeSwatch(theme: t, showSample: false)
+                    .frame(width: 14, height: 14)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.secondary.opacity(0.3), lineWidth: 0.5))
+            }
+        }
+    }
+
     private func cell(_ theme: ThemeMode) -> some View {
         let selected = app.prefs.data.theme == theme
+        let unlocked = app.isUnlocked(theme)
         return Button {
+            guard unlocked else {
+                if let r = theme.medalRequirement {
+                    app.show("Earn \(r.count) \(r.tier.label.lowercased()) badges to unlock \(theme.label) (you have \(app.badgeCount(atLeast: r.tier)))")
+                }
+                app.haptic(.warning)
+                return
+            }
             withAnimation(.easeInOut(duration: 0.35)) {
                 app.prefs.data.theme = theme
                 if let a = theme.suggestedAccent { app.prefs.data.accentHex = a }
             }
-            if theme == .dynamic { app.coverChanged() }
+            if theme == .dynamic || theme == .pulse { app.coverChanged() }
+            if theme == .weather { Task { await WeatherWatcher.shared.refreshIfNeeded(force: true) } }
+            if theme == .streak { app.checkBadges(force: true) }
             app.mark("theme:\(theme.rawValue)")
             app.haptic(.selection)
         } label: {
@@ -551,43 +616,111 @@ struct ThemeGrid: View {
                 ThemeSwatch(theme: theme)
                     .frame(height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay { if !unlocked { lockOverlay(theme) } }
                     .overlay {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(selected ? look.accent : Color.secondary.opacity(0.25), lineWidth: selected ? 3 : 1)
                             .padding(selected ? -3 : 0)
                     }
-                Text(subtitle(theme)).font(.caption2.weight(selected ? .bold : .regular))
+                Text(LiveThemes.subtitle(theme)).font(.caption2.weight(selected ? .bold : .regular))
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(theme.label) theme")
+        .accessibilityLabel("\(theme.label) theme\(unlocked ? "" : ", locked")")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func subtitle(_ t: ThemeMode) -> String {
-        t == .horizon ? "Horizon · \(HorizonPhase.at(.now).label)" : t.label
+    private func lockOverlay(_ theme: ThemeMode) -> some View {
+        let r = theme.medalRequirement
+        let have = r.map { app.badgeCount(atLeast: $0.tier) } ?? 0
+        return ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.black.opacity(0.55))
+            VStack(spacing: 3) {
+                Image(systemName: "lock.fill").font(.caption.weight(.bold))
+                if let r {
+                    Text("\(min(have, r.count))/\(r.count)").font(.caption2.weight(.bold).monospacedDigit())
+                    Image(systemName: "medal.fill").font(.system(size: 9)).foregroundStyle(r.tier.metal.first ?? .white)
+                }
+            }
+            .foregroundStyle(.white)
+        }
+    }
+}
+
+/// Settings for the alive themes that need a little info (Weather's place, your birthday for Seasons).
+struct AliveThemeOptions: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        @Bindable var prefs = app.prefs
+        switch prefs.data.theme {
+        case .weather:
+            Section {
+                Toggle("Use my location", isOn: $prefs.data.weatherUseLocation)
+                TextField("City (e.g. Copenhagen)", text: $prefs.data.weatherCity)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .onSubmit { Task { await WeatherWatcher.shared.refreshIfNeeded(force: true) } }
+                if let w = WeatherWatcher.shared.now {
+                    LabeledContent("Now", value: "\(w.kind.label) · \(Int(w.temperature.rounded()))°\(w.place.map { " in \($0)" } ?? "")")
+                }
+                if let problem = WeatherWatcher.shared.problem {
+                    Text(problem).font(.footnote).foregroundStyle(.secondary)
+                }
+                Button("Check the weather now") { Task { await WeatherWatcher.shared.refreshIfNeeded(force: true) } }
+            } header: { Text("Weather") } footer: {
+                Text("Uses Open-Meteo, a free weather service. With location off, or if it isn't allowed, the city is used instead. Updates about every 30 minutes.")
+            }
+            .themedRow()
+        case .seasons:
+            Section {
+                Toggle("Celebrate my birthday", isOn: Binding(
+                    get: { prefs.data.birthdayMonth > 0 },
+                    set: { on in
+                        if on {
+                            let c = Calendar.current.dateComponents([.month, .day], from: .now)
+                            prefs.data.birthdayMonth = c.month ?? 1
+                            prefs.data.birthdayDay = c.day ?? 1
+                        } else { prefs.data.birthdayMonth = 0 }
+                    }))
+                if prefs.data.birthdayMonth > 0 {
+                    DatePicker("Birthday", selection: Binding(
+                        get: { Calendar.current.date(from: DateComponents(year: 2000, month: prefs.data.birthdayMonth, day: prefs.data.birthdayDay)) ?? .now },
+                        set: { d in
+                            let c = Calendar.current.dateComponents([.month, .day], from: d)
+                            prefs.data.birthdayMonth = c.month ?? 1
+                            prefs.data.birthdayDay = c.day ?? 1
+                        }), displayedComponents: .date)
+                }
+            } header: { Text("Seasons") } footer: {
+                Text("Blossoms in spring, warm light in summer, falling leaves in autumn and snow in winter, with specials for New Year, Valentine's Day, Fastelavn, Easter, Sankt Hans, Halloween, Mortensaften, Advent and Christmas, Lucia, and your birthday. Only the day and month of your birthday are used.")
+            }
+            .themedRow()
+        default:
+            EmptyView()
+        }
     }
 }
 
 /// A tiny preview of a theme.
 struct ThemeSwatch: View {
     let theme: ThemeMode
+    var showSample = true
     @Environment(AppModel.self) private var app
 
     private var palette: ThemePalette? {
         switch theme {
-        case .horizon: return HorizonPhase.at(.now).palette
         case .dynamic: return nil
-        default: return theme.palette
+        default: return theme.isLive ? LiveThemes.palette(for: theme, at: .now, cover: app.coverColors) : theme.palette
         }
     }
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             backdrop
-            sample
+            if showSample { sample }
         }
     }
 
@@ -613,9 +746,7 @@ struct ThemeSwatch: View {
 
     @ViewBuilder private func paletteBackdrop(_ p: ThemePalette) -> some View {
         ZStack {
-            if p.effect != .none {
-                AnimatedScene(palette: p, still: true)
-            } else if p.lights.count >= 2 {
+            if p.lights.count >= 2 {
                 p.colors.first ?? .black
                 Circle().fill(p.lights[0].opacity(0.65)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
                 Circle().fill(p.lights[1].opacity(0.65)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
@@ -632,6 +763,7 @@ struct ThemeSwatch: View {
             }
             if p.stars { starDots }
             if p.grid { gridLines(p.glow.last ?? .cyan) }
+            if p.effect != .none && showSample { EffectLayer(palette: p, still: true) }
         }
     }
 
@@ -829,6 +961,7 @@ struct HomeSectionRow: View {
                     }
                     .disabled(!section.visible)
                 }
+                if section.kind == .dice { DiceSourceMenu().disabled(!section.visible) }
             }
             Spacer()
             SwitchKnob(isOn: $section.visible)
@@ -1042,5 +1175,68 @@ struct WelcomeView: View {
         app.prefs.data.name = name.trimmingCharacters(in: .whitespaces)
         withAnimation { app.prefs.data.onboarded = true }
         app.haptic(.success)
+    }
+}
+
+
+/// Picks where the Dice block's songs come from (instead of a layout).
+struct DiceSourceMenu: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+
+    /// Artists you follow first, then the ones you have the most songs by.
+    private var artists: [Artist] {
+        var counts: [Int: (Artist, Int)] = [:]
+        for e in app.library.entries {
+            let a = e.song.artist
+            counts[a.id] = (a, (counts[a.id]?.1 ?? 0) + 1)
+        }
+        let top = counts.values.sorted { $0.1 > $1.1 }.map(\.0)
+        var seen = Set<Int>()
+        return (app.library.followed + top).filter { $0.id > 0 && seen.insert($0.id).inserted }.prefix(40).map { $0 }
+    }
+
+    var body: some View {
+        @Bindable var prefs = app.prefs
+        Menu {
+            Picker("Play from", selection: $prefs.data.diceSource) {
+                ForEach(DiceSource.allCases) { s in
+                    Label { Text(s.label); Text(s.detail) } icon: { Image(systemName: s.icon) }.tag(s)
+                }
+            }
+            if prefs.data.diceSource == .artist {
+                Picker("Artist", selection: Binding(get: { prefs.data.diceArtist?.id ?? 0 },
+                                                    set: { id in prefs.data.diceArtist = artists.first { $0.id == id } })) {
+                    ForEach(artists, id: \.id) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.menu)
+            }
+            if prefs.data.diceSource == .playlist {
+                Picker("Playlist", selection: Binding(get: { prefs.data.dicePlaylistID ?? UUID() },
+                                                      set: { prefs.data.dicePlaylistID = $0 })) {
+                    ForEach(app.playlists.playlists) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.menu)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: prefs.data.diceSource.icon)
+                Text(label)
+                Image(systemName: "chevron.up.chevron.down").font(.caption2)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(look.accent)
+            .lineLimit(1)
+            .fixedSize()
+        }
+    }
+
+    private var label: String {
+        let d = app.prefs.data
+        switch d.diceSource {
+        case .artist: return "Artist · \(d.diceArtist?.name ?? "pick one")"
+        case .playlist: return "Playlist · \(d.dicePlaylistID.flatMap { app.playlists.playlist($0)?.name } ?? "pick one")"
+        default: return d.diceSource.label
+        }
     }
 }

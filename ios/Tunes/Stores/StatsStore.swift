@@ -239,6 +239,39 @@ final class StatsStore {
         return (best, bestStart)
     }
 
+    /// The current daily streak (counting today or, if you haven't listened yet today, up to yesterday),
+    /// and the Streak theme's level, which cools by one for each day missed since the last streak.
+    func streakInfo() -> StreakInfo {
+        let cal = Calendar.current
+        let days = Set(records.filter { $0.seconds >= Self.countThreshold }.map { cal.startOfDay(for: $0.start) })
+        guard let last = days.max() else { return StreakInfo() }
+        var run = 0
+        var d = last
+        while days.contains(d) {
+            run += 1
+            guard let prev = cal.date(byAdding: .day, value: -1, to: d) else { break }
+            d = prev
+        }
+        let gap = cal.dateComponents([.day], from: last, to: cal.startOfDay(for: .now)).day ?? 0
+        let level: Int = switch run {
+        case ..<3: 0
+        case ..<7: 1
+        case ..<14: 2
+        case ..<30: 3
+        case ..<100: 4
+        default: 5
+        }
+        return StreakInfo(current: gap <= 1 ? run : 0, level: max(0, level - max(0, gap - 1)))
+    }
+
+    /// Seconds listened per day (start of day → seconds).
+    func daily() -> [Date: Double] {
+        let cal = Calendar.current
+        var out: [Date: Double] = [:]
+        for r in records where r.seconds >= Self.countThreshold { out[cal.startOfDay(for: r.start), default: 0] += r.seconds }
+        return out
+    }
+
     /// The day with the most listening.
     func biggestDay(_ recs: [PlayRecord]) -> (day: Date, seconds: Double, topSong: PlayRecord?)? {
         let cal = Calendar.current

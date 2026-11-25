@@ -37,7 +37,7 @@ final class AppModel {
 
     func coverChanged() {
         checkBadges() // a song just changed: a good moment to check (stats moved on)
-        guard prefs.data.theme == .dynamic, let song = player.currentSong else { return }
+        guard prefs.data.theme == .dynamic || prefs.data.theme == .pulse, let song = player.currentSong else { return }
         Task {
             guard let img = await ImageCache.shared.image(local: song.localArtworkURL, remote: song.artworkURL, maxPixel: 120),
                   let colors = await CoverColors.extract(from: img), player.currentSong?.id == song.id else { return }
@@ -82,6 +82,8 @@ final class AppModel {
         playlists.createDailyMixesIfNeeded()
         playlists.syncHomeCharts(prefs.data.homeCharts)
         library.analyzeMissing()
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        WeatherWatcher.shared.start()
         if prefs.data.autoRemoveUnplayed {
             library.cleanUpUnplayed(stats: stats, protectedIDs: playlists.protectedSongIDs)
         }
@@ -95,6 +97,7 @@ final class AppModel {
 
     func onForeground() {
         checkBadges(force: true)
+        Task { await WeatherWatcher.shared.refreshIfNeeded() }
         library.pump()
         Task { await playlists.refreshAll() }
         backup.autoBackupIfDue()
@@ -154,12 +157,44 @@ final class AppModel {
                 earned.append(s)
             }
         }
+        let newThemes = medalThemesJustUnlocked()
+        let s = stats.streakInfo()
+        if s != streak { streak = s }
         if first { prefs.data.counters["badgesReady"] = 1; return }
         if let best = earned.max(by: { $0.tier < $1.tier }) {
             let more = earned.count > 1 ? " and \(earned.count - 1) more" : ""
             show("\(best.tier == .gold ? "🥇" : best.tier == .silver ? "🥈" : "🥉") \(best.tier.label) badge: \(best.def.name)\(more)")
             haptic(.success)
+        } else if let theme = newThemes.last {
+            show("✨ New theme unlocked: \(theme.label)")
+            haptic(.success)
         }
+    }
+
+    /// Your listening streak, for the Streak theme (updated with the badge checks).
+    var streak = StreakInfo()
+
+    /// How many badges you have at a tier or better.
+    func badgeCount(atLeast tier: BadgeTier) -> Int {
+        prefs.data.badgeTiers.values.filter { $0 >= tier.rawValue }.count
+    }
+
+    func isUnlocked(_ theme: ThemeMode) -> Bool {
+        guard let r = theme.medalRequirement else { return true }
+        return badgeCount(atLeast: r.tier) >= r.count
+    }
+
+    /// Medal themes that became available since the last check (each is announced once).
+    private func medalThemesJustUnlocked() -> [ThemeMode] {
+        var out: [ThemeMode] = []
+        for theme in ThemeMode.allCases where theme.medalRequirement != nil && isUnlocked(theme) {
+            let key = "unlocked:\(theme.rawValue)"
+            if prefs.data.counters[key] == nil {
+                prefs.data.counters[key] = 1
+                out.append(theme)
+            }
+        }
+        return out
     }
 
     /// Badges in the order to show off: highest tier first.

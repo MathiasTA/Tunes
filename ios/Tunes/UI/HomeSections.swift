@@ -214,3 +214,102 @@ struct ChartArt: View {
         .clipShape(RoundedRectangle(cornerRadius: look.radius(size > 60 ? 12 : 6), style: .continuous))
     }
 }
+
+
+// MARK: - Dice
+
+/// A big button that plays a random song, from the source chosen in Customize Home.
+struct DiceBlock: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+    @State private var spin = 0.0
+    @State private var face = 5
+
+    var body: some View {
+        let source = app.prefs.data.diceSource
+        Button(action: roll) {
+            HStack(spacing: 16) {
+                Image(systemName: "die.face.\(face).fill")
+                    .font(.system(size: 46, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .rotationEffect(.degrees(spin))
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Roll the dice").font(.title3.weight(.heavy))
+                    Label(subtitle(source), systemImage: source.icon)
+                        .font(.footnote.weight(.semibold)).opacity(0.85).lineLimit(1)
+                }
+                .foregroundStyle(.white)
+                Spacer(minLength: 0)
+                Image(systemName: "play.fill").font(.title3).foregroundStyle(.white.opacity(0.9))
+                    .padding(12).background(.white.opacity(0.18), in: Circle())
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity)
+            .background(
+                LinearGradient(colors: [look.accent, look.accent.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                in: RoundedRectangle(cornerRadius: look.radius(20), style: .continuous))
+        }
+        .buttonStyle(PressStyle())
+        .padding(.horizontal)
+        .accessibilityLabel("Roll the dice: play a random song from \(subtitle(source))")
+    }
+
+    private func subtitle(_ s: DiceSource) -> String {
+        switch s {
+        case .artist: return app.prefs.data.diceArtist?.name ?? "Pick an artist"
+        case .playlist: return app.prefs.data.dicePlaylistID.flatMap { app.playlists.playlist($0)?.name } ?? "Pick a playlist"
+        default: return s.label
+        }
+    }
+
+    private func roll() {
+        let pool = Self.pool(app)
+        guard let pick = pool.randomElement() else {
+            app.show("Nothing to roll from yet. Try another source in Customize Home.")
+            app.haptic(.warning)
+            return
+        }
+        app.haptic(.medium)
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.55)) {
+            spin += 360 * 2
+            face = Int.random(in: 1...6)
+        }
+        let rest = pool.filter { $0.id != pick.id }.shuffled().prefix(99)
+        app.player.play([pick] + rest, startAt: 0, context: "Roll the dice")
+        app.bump("diceRolls")
+    }
+
+    /// The songs the dice can land on.
+    static func pool(_ app: AppModel) -> [Song] {
+        let lib = app.library, stats = app.stats
+        let prefs = app.prefs.data
+        let all = lib.entries
+        switch prefs.diceSource {
+        case .anything:
+            return all.map(\.song)
+        case .favorites:
+            return lib.liked.map(\.song)
+        case .recentFavorites:
+            let recent = stats.records(.month)
+            return stats.topSongs(recent, limit: 40).compactMap { lib.entry($0.songID)?.song }
+        case .pastFavorites:
+            let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .now
+            var plays: [Int: Int] = [:], last: [Int: Date] = [:]
+            for r in stats.records where r.seconds >= StatsStore.playThreshold {
+                plays[r.songID, default: 0] += 1
+                last[r.songID] = max(last[r.songID] ?? .distantPast, r.start)
+            }
+            return all.filter { (plays[$0.id] ?? 0) >= 5 && (last[$0.id] ?? .distantPast) < cutoff }.map(\.song)
+        case .artist:
+            guard let a = prefs.diceArtist else { return [] }
+            return lib.songs(byArtist: a.id)
+        case .neverPlayed:
+            let played = Set(stats.records.map(\.songID))
+            return all.filter { !played.contains($0.id) }.map(\.song)
+        case .playlist:
+            guard let id = prefs.dicePlaylistID, let p = app.playlists.playlist(id) else { return [] }
+            return p.songs.filter { lib.isDownloaded($0.id) }
+        }
+    }
+}

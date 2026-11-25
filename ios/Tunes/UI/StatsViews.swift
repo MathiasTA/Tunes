@@ -43,6 +43,8 @@ struct StatsView: View {
                     .background(Surface.card(look), in: RoundedRectangle(cornerRadius: look.radius(16)))
                 }
 
+                ListeningCalendar()
+
                 if recs.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "chart.bar.xaxis").font(.largeTitle).foregroundStyle(.secondary)
@@ -216,5 +218,120 @@ struct SongStatsView: View {
         .themedForm()
         .navigationTitle("Song stats")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+
+/// A year of listening as a calendar heat map: one square per day, brighter the more you listened.
+/// Tap a day to see how long you listened and what you played most.
+struct ListeningCalendar: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+    @State private var selected: Date?
+
+    private let weeks = 53
+    private let cell: CGFloat = 12
+    private let gap: CGFloat = 3
+
+    var body: some View {
+        let cal = Calendar.current
+        let daily = app.stats.daily()
+        let today = cal.startOfDay(for: .now)
+        // Columns are weeks (Monday first), the last column holds today.
+        let weekday = (cal.component(.weekday, from: today) + 5) % 7 // Monday = 0
+        let start = cal.date(byAdding: .day, value: -(weekday + 7 * (weeks - 1)), to: today) ?? today
+        let peak = max(daily.values.max() ?? 1, 60)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Listening calendar").font(.headline)
+                Spacer()
+                Text("\(daily.keys.filter { $0 >= start }.count) days with music").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: gap) {
+                        ForEach(0..<weeks, id: \.self) { w in
+                            VStack(spacing: gap) {
+                                monthLabel(cal.date(byAdding: .day, value: w * 7, to: start) ?? start, week: w)
+                                ForEach(0..<7, id: \.self) { d in
+                                    let day = cal.date(byAdding: .day, value: w * 7 + d, to: start) ?? start
+                                    square(day: day, seconds: daily[day] ?? 0, peak: peak, future: day > today)
+                                }
+                            }
+                            .id(w)
+                        }
+                    }
+                }
+                .onAppear { proxy.scrollTo(weeks - 1, anchor: .trailing) }
+            }
+            HStack(spacing: 4) {
+                Text("Less").font(.caption2).foregroundStyle(.secondary)
+                ForEach(0..<5, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 2.5).fill(color(Double(i) / 4)).frame(width: 10, height: 10)
+                }
+                Text("More").font(.caption2).foregroundStyle(.secondary)
+            }
+            if let day = selected { dayDetail(day, seconds: daily[day] ?? 0) }
+        }
+        .padding(14)
+        .background(Surface.card(look), in: RoundedRectangle(cornerRadius: look.radius(16)))
+        .animation(.easeInOut(duration: 0.2), value: selected)
+    }
+
+    private func monthLabel(_ weekStart: Date, week: Int) -> some View {
+        let cal = Calendar.current
+        let day = cal.component(.day, from: weekStart)
+        let show = week == 0 ? day <= 21 : day <= 7
+        return Text(show ? weekStart.formatted(.dateTime.month(.abbreviated)) : " ")
+            .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            .fixedSize()
+            .frame(width: cell, height: 11, alignment: .leading)
+    }
+
+    private func color(_ level: Double) -> Color {
+        level <= 0 ? Color.secondary.opacity(0.15) : look.accent.opacity(0.25 + 0.75 * level)
+    }
+
+    private func square(day: Date, seconds: Double, peak: Double, future: Bool) -> some View {
+        // Square root so a few huge days don't make everything else look empty.
+        let level = seconds > 0 ? max(0.08, sqrt(seconds / peak)) : 0
+        let isSelected = selected == day
+        return RoundedRectangle(cornerRadius: 2.5)
+            .fill(future ? Color.clear : color(level))
+            .frame(width: cell, height: cell)
+            .overlay(RoundedRectangle(cornerRadius: 2.5).stroke(isSelected ? Color.primary : .clear, lineWidth: 1.5))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !future else { return }
+                selected = isSelected ? nil : day
+                app.haptic(.selection)
+            }
+            .accessibilityLabel("\(day.formatted(date: .abbreviated, time: .omitted)): \(Fmt.listening(seconds))")
+    }
+
+    private func dayDetail(_ day: Date, seconds: Double) -> some View {
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: day) ?? day
+        let recs = app.stats.records(in: DateInterval(start: day, end: end))
+        let top = app.stats.topSongs(recs, limit: 3)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(day.formatted(.dateTime.weekday(.wide).day().month(.wide))).font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(seconds > 0 ? Fmt.listening(seconds) : "No music").font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(top) { s in
+                HStack(spacing: 10) {
+                    Artwork(url: s.artworkURL, local: Paths.songArtwork(s.songID), size: 34, seed: s.songID)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(s.title).font(.footnote.weight(.semibold)).lineLimit(1)
+                        Text(s.artist.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Text("\(max(s.plays, 1))×").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.top, 4)
+        .transition(.opacity)
     }
 }

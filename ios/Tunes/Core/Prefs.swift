@@ -80,12 +80,12 @@ struct EQProfile: Codable, Hashable {
 
 enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
     case summary, madeForYou, newFromArtists, charts, recentlyPlayed, recentlyAdded, topArtists, following, onRepeat, trending, newReleases
-    case yourPlaylists, favoriteAlbums, badges
+    case yourPlaylists, favoriteAlbums, badges, dice
     var id: String { rawValue }
-    /// New sections are on by default, except Badges (it's for showing off, so you choose).
-    var visibleByDefault: Bool { self != .badges }
-    /// The summary card has a fixed look; everything else can change layout.
-    var hasLayouts: Bool { self != .summary && self != .badges }
+    /// New sections are on by default, except Badges and Dice (you choose those).
+    var visibleByDefault: Bool { self != .badges && self != .dice }
+    /// The summary card has a fixed look; everything else can change layout (Dice chooses its songs instead).
+    var hasLayouts: Bool { self != .summary && self != .badges && self != .dice }
     var defaultLayout: HomeLayout {
         switch self {
         case .onRepeat: .numbered
@@ -111,6 +111,7 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .yourPlaylists: "Your playlists"
         case .favoriteAlbums: "Your favorite albums right now"
         case .badges: "Your badges"
+        case .dice: "Roll the dice"
         }
     }
     var icon: String {
@@ -129,6 +130,7 @@ enum HomeSectionKind: String, Codable, CaseIterable, Identifiable {
         case .yourPlaylists: "music.note.list"
         case .favoriteAlbums: "square.stack.fill"
         case .badges: "medal.fill"
+        case .dice: "dice.fill"
         }
     }
 }
@@ -254,6 +256,16 @@ struct PrefsData: Codable, Equatable {
     var counters: [String: Int] = [:]
     /// Badge tiers already celebrated, so each unlock is announced once.
     var badgeTiers: [String: Int] = [:]
+    /// Weather theme: use your location, or this city.
+    var weatherUseLocation = true
+    var weatherCity = ""
+    /// Your birthday (month 0 = not set), celebrated by the Seasons theme.
+    var birthdayMonth = 0
+    var birthdayDay = 0
+    /// Dice block on Home: where its songs come from.
+    var diceSource: DiceSource = .anything
+    var diceArtist: Artist?
+    var dicePlaylistID: UUID?
 
     // Home
     var home: [HomeSection] = HomeSectionKind.allCases.map { HomeSection(kind: $0, visible: $0.visibleByDefault) }
@@ -310,6 +322,11 @@ struct PrefsData: Codable, Equatable {
         haptics = v(.haptics, d.haptics); animations = v(.animations, d.animations)
         font = v(.font, d.font); playerStyle = v(.playerStyle, d.playerStyle); progressStyle = v(.progressStyle, d.progressStyle)
         miniPlayerStyle = v(.miniPlayerStyle, d.miniPlayerStyle); counters = v(.counters, d.counters); badgeTiers = v(.badgeTiers, d.badgeTiers)
+        weatherUseLocation = v(.weatherUseLocation, d.weatherUseLocation); weatherCity = v(.weatherCity, d.weatherCity)
+        birthdayMonth = v(.birthdayMonth, d.birthdayMonth); birthdayDay = v(.birthdayDay, d.birthdayDay)
+        diceSource = v(.diceSource, d.diceSource)
+        diceArtist = try? c.decodeIfPresent(Artist.self, forKey: .diceArtist)
+        dicePlaylistID = try? c.decodeIfPresent(UUID.self, forKey: .dicePlaylistID)
         home = v(.home, d.home); homeCharts = v(.homeCharts, d.homeCharts)
         offline = v(.offline, d.offline); downloadWifiOnly = v(.downloadWifiOnly, d.downloadWifiOnly)
         askBeforeExtras = v(.askBeforeExtras, d.askBeforeExtras); previewsOnCellular = v(.previewsOnCellular, d.previewsOnCellular)
@@ -410,11 +427,9 @@ extension Prefs {
 
     /// The look at a given moment: Horizon depends on the time, Dynamic on the cover that's playing.
     func look(at date: Date, cover: CoverColors?) -> Look {
-        let palette: ThemePalette? = switch data.theme {
-        case .horizon: HorizonPhase.at(date).palette
-        case .dynamic: (cover ?? .fallback).palette
-        default: data.theme.palette
-        }
+        let palette: ThemePalette? = data.theme.isLive
+            ? LiveThemes.palette(for: data.theme, at: date, cover: cover)
+            : data.theme.palette
         let accentColor = data.theme.isLive ? (palette?.accent ?? accent) : accent
         return Look(accent: accentColor,
              theme: data.theme,
@@ -623,6 +638,46 @@ enum MiniPlayerStyle: String, Codable, CaseIterable, Identifiable {
         case .bar: 62
         case .bubble: 78
         case .minimal: 52
+        }
+    }
+}
+
+
+/// Where the Dice block on Home picks its random song from.
+enum DiceSource: String, Codable, CaseIterable, Identifiable {
+    case anything, favorites, recentFavorites, pastFavorites, artist, neverPlayed, playlist
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .anything: "Anything"
+        case .favorites: "Favorites"
+        case .recentFavorites: "Recent favorites"
+        case .pastFavorites: "Past favorites"
+        case .artist: "One artist"
+        case .neverPlayed: "Never played"
+        case .playlist: "A playlist"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .anything: "Any song in your library"
+        case .favorites: "Your liked songs"
+        case .recentFavorites: "What you've played most lately"
+        case .pastFavorites: "Songs you loved but haven't played in a while"
+        case .artist: "Only songs by the artist you pick"
+        case .neverPlayed: "Downloaded but never played"
+        case .playlist: "Only songs from the playlist you pick"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .anything: "music.note"
+        case .favorites: "heart.fill"
+        case .recentFavorites: "flame.fill"
+        case .pastFavorites: "clock.arrow.circlepath"
+        case .artist: "person.fill"
+        case .neverPlayed: "sparkles"
+        case .playlist: "music.note.list"
         }
     }
 }

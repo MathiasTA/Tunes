@@ -7,15 +7,19 @@ import UIKit
 
 enum ThemeMode: String, Codable, CaseIterable, Identifiable {
     case dark, black, light, auto
-    case dynamic, horizon
+    case dynamic, horizon, weather, seasons, pulse, moon, battery, streak
     case midnight, sunset, ocean, forest, rose, synthwave, matcha, coffee, arctic, graphite, vapor, abyss
     case aurora, nebula, lava, lagoon, pastel, fireflies, tide, warp
+    case bronze, silver, gold, bronzeGlow, silverShine, goldRush
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .rose: "Rosé"
         case .dynamic: "Dynamic"
+        case .bronzeGlow: "Bronze Glow"
+        case .silverShine: "Silver Shine"
+        case .goldRush: "Gold Rush"
         default: rawValue.capitalized
         }
     }
@@ -23,23 +27,38 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
     /// The plain themes; everything else paints its own background.
     var isClassic: Bool { [.dark, .black, .light, .auto].contains(self) }
     /// Themes whose look changes by themselves (with the song, or with the time of day).
-    var isLive: Bool { self == .dynamic || self == .horizon }
+    var isLive: Bool { [.dynamic, .horizon, .weather, .seasons, .pulse, .moon, .battery, .streak].contains(self) }
+
+    /// Medal themes are unlocked by earning enough badges of a tier (that tier or better).
+    var medalRequirement: (tier: BadgeTier, count: Int)? {
+        switch self {
+        case .bronze: (.bronze, 5)
+        case .silver: (.silver, 5)
+        case .gold: (.gold, 3)
+        case .bronzeGlow: (.bronze, 12)
+        case .silverShine: (.silver, 12)
+        case .goldRush: (.gold, 8)
+        default: nil
+        }
+    }
 
     static let groups: [(String, [ThemeMode])] = [
         ("Classic", [.dark, .black, .light, .auto]),
-        ("Alive", [.dynamic, .horizon]),
+        ("Alive", [.dynamic, .horizon, .weather, .seasons, .pulse, .moon, .battery, .streak]),
         ("Gradients", [.midnight, .sunset, .ocean, .forest, .rose, .synthwave, .vapor, .abyss, .matcha, .coffee, .arctic, .graphite]),
         ("Animated", [.aurora, .nebula, .fireflies, .tide, .warp, .lava, .lagoon, .pastel]),
+        ("Medals", [.bronze, .silver, .gold, .bronzeGlow, .silverShine, .goldRush]),
     ]
 
     /// Static look of the gradient and animated themes.
     var palette: ThemePalette? {
         func p(_ colors: [String], bar: String, scheme: ColorScheme = .dark, glow: [String] = [], accent: String,
                lights: [String] = [], opacity: Double = 0.3, seconds: Double = 18, stars: Bool = false, grid: Bool = false,
-               effect: ThemeEffect = .none, sun: Bool = false, starColor: String = "#FFFFFF") -> ThemePalette {
+               effect: ThemeEffect = .none, sun: Bool = false, starColor: String = "#FFFFFF", fx: [String] = []) -> ThemePalette {
             ThemePalette(colors: colors.map { Color(hex: $0) }, bar: Color(hex: bar), scheme: scheme, glow: glow.map { Color(hex: $0) },
                     lights: lights.map { Color(hex: $0) }, lightOpacity: opacity, lightSeconds: seconds, stars: stars, grid: grid,
-                    accent: Color(hex: accent), accentHex: accent, effect: effect, sun: sun, starColor: Color(hex: starColor))
+                    accent: Color(hex: accent), accentHex: accent, effect: effect, sun: sun, starColor: Color(hex: starColor),
+                    effectColors: fx.map { Color(hex: $0) })
         }
         switch self {
         case .midnight: return p(["#0B1026", "#1B1446", "#2E1458"], bar: "#0D1130", glow: ["#6366F1", "#C084FC"], accent: "#A78BFA")
@@ -63,11 +82,24 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
         case .warp:
             return p(["#05010F", "#0D0420"], bar: "#07021A", glow: ["#7C3AED"], accent: "#C4B5FD", effect: .warp)
         case .graphite: return p(["#0A0A0A", "#1A1A1A", "#2B2B2B"], bar: "#0E0E0E", glow: ["#6B7280", "#D1D5DB"], accent: "#E5E7EB")
-        case .aurora: return p(["#050B14"], bar: "#070F1A", accent: "#34D399", lights: ["#10B981", "#8B5CF6", "#0EA5E9"], opacity: 0.32, seconds: 18)
-        case .nebula: return p(["#07051A"], bar: "#0A0820", accent: "#E879F9", lights: ["#C026D3", "#4F46E5", "#06B6D4"], opacity: 0.28, seconds: 24, stars: true)
-        case .lava: return p(["#130606"], bar: "#1A0909", accent: "#FB923C", lights: ["#F97316", "#DC2626", "#DB2777"], opacity: 0.30, seconds: 14)
-        case .lagoon: return p(["#03161A"], bar: "#041B20", accent: "#2DD4BF", lights: ["#14B8A6", "#22D3EE", "#4ADE80"], opacity: 0.26, seconds: 20)
-        case .pastel: return p(["#FFF9F5"], bar: "#FFF8F6", scheme: .light, accent: "#EC4899", lights: ["#F9A8D4", "#FDBA74", "#C4B5FD"], opacity: 0.45, seconds: 22)
+        case .aurora: return p(["#050B14"], bar: "#070F1A", accent: "#34D399", lights: ["#10B981", "#8B5CF6", "#0EA5E9"], opacity: 0.26, seconds: 18,
+                               effect: .ribbons, fx: ["#34D399", "#A78BFA", "#22D3EE"])
+        case .nebula: return p(["#07051A"], bar: "#0A0820", accent: "#E879F9", lights: ["#C026D3", "#4F46E5", "#06B6D4"], opacity: 0.24, seconds: 24, stars: true,
+                               effect: .dust, fx: ["#E879F9", "#818CF8", "#67E8F9"])
+        case .lava: return p(["#130606"], bar: "#1A0909", accent: "#FB923C", lights: ["#F97316", "#DC2626", "#DB2777"], opacity: 0.22, seconds: 14,
+                             effect: .lavaLamp, fx: ["#F97316"])
+        case .lagoon: return p(["#03161A"], bar: "#041B20", accent: "#2DD4BF", lights: ["#14B8A6", "#22D3EE", "#4ADE80"], opacity: 0.24, seconds: 20,
+                               effect: .caustics)
+        case .pastel: return p(["#FFF9F5"], bar: "#FFF8F6", scheme: .light, accent: "#EC4899", lights: ["#F9A8D4", "#FDBA74", "#C4B5FD"], opacity: 0.4, seconds: 22,
+                               effect: .bubbles, fx: ["#F472B6", "#FB923C", "#A78BFA", "#38BDF8"])
+        case .bronze: return p(["#1F1006", "#4A2810", "#7A4A22"], bar: "#22120A", glow: ["#E0A36B", "#B87333"], accent: "#E0A36B")
+        case .silver: return p(["#15171B", "#30353C", "#5A6069"], bar: "#181A1E", glow: ["#F3F4F6", "#9CA3AF"], accent: "#E5E7EB")
+        case .gold: return p(["#1F1604", "#4E390D", "#8A6A18"], bar: "#211805", glow: ["#FDE68A", "#F59E0B"], accent: "#FCD34D")
+        case .bronzeGlow: return p(["#1A0B04", "#40200C", "#6E3C18"], bar: "#1C0D06", glow: ["#F59E0B", "#B87333"], accent: "#F0B27A",
+                                   effect: .embers, fx: ["#F59E0B", "#EA580C", "#FDBA74"])
+        case .silverShine: return p(["#121418", "#2B3036", "#555B64"], bar: "#16181C", glow: ["#FFFFFF", "#9CA3AF"], accent: "#F3F4F6", effect: .glint)
+        case .goldRush: return p(["#1A1203", "#46330B", "#806116"], bar: "#1D1404", glow: ["#FDE68A", "#F59E0B"], accent: "#FDE047",
+                                 effect: .sparkles, fx: ["#FDE68A", "#FFFFFF", "#FCD34D"])
         default: return nil
         }
     }
@@ -104,9 +136,9 @@ struct ThemePalette: Equatable {
     /// A big retro sun with stripes (Vapor).
     var sun = false
     var starColor: Color = .white
+    /// Colors the effect uses (petals, confetti, embers...); falls back to the lights or glows.
+    var effectColors: [Color] = []
 }
-
-enum ThemeEffect: Equatable { case none, fireflies, tide, warp }
 
 // MARK: - Horizon: a theme that follows the sky
 
@@ -285,12 +317,13 @@ struct ThemeBackground: View {
     var body: some View {
         Group {
             if let p = look.palette {
-                if p.effect != .none {
-                    AnimatedScene(palette: p).id(look.theme)
-                } else if !p.lights.isEmpty {
-                    DriftingLights(palette: p).id(look.theme)
-                } else {
-                    GlowGradient(palette: p)
+                ZStack {
+                    if !p.lights.isEmpty {
+                        DriftingLights(palette: p).id(look.theme)
+                    } else {
+                        GlowGradient(palette: p)
+                    }
+                    if p.effect != .none { EffectLayer(palette: p).id(look.theme) }
                 }
             } else {
                 Surface.background(look)
@@ -442,88 +475,3 @@ private struct RetroSun: View {
     }
 }
 
-/// Fireflies, Tide and Warp: small scenes drawn 30 times a second (still when Animations is off).
-struct AnimatedScene: View {
-    let palette: ThemePalette
-    var still = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let moving = !still && !reduceMotion && AppModel.shared.prefs.data.animations
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !moving)) { ctx in
-            let t = moving ? ctx.date.timeIntervalSinceReferenceDate : 1000
-            Canvas { gc, size in
-                gc.fill(Path(CGRect(origin: .zero, size: size)),
-                        with: .linearGradient(Gradient(colors: palette.colors.count > 1 ? palette.colors : palette.colors + palette.colors),
-                                              startPoint: .zero, endPoint: CGPoint(x: size.width * 0.3, y: size.height)))
-                switch palette.effect {
-                case .fireflies: Self.fireflies(&gc, size, t, glow: palette.accent ?? .yellow)
-                case .tide: Self.tide(&gc, size, t, color: palette.accent ?? .teal)
-                case .warp: Self.warp(&gc, size, t, glow: palette.glow.first ?? .purple)
-                case .none: break
-                }
-            }
-        }
-    }
-
-    /// Glowing dots wandering slowly and pulsing, each on its own path.
-    static func fireflies(_ gc: inout GraphicsContext, _ size: CGSize, _ t: Double, glow: Color) {
-        var rng = SeededRNG(seed: 7)
-        for _ in 0..<28 {
-            let bx = Double.random(in: 0...1, using: &rng), by = Double.random(in: 0.15...1, using: &rng)
-            let sp = Double.random(in: 0.05...0.12, using: &rng), ph = Double.random(in: 0...6.28, using: &rng)
-            let x = (bx + 0.06 * sin(t * sp * 2 + ph) + 0.03 * sin(t * sp * 5 + ph * 2)) * size.width
-            let y = (by + 0.05 * cos(t * sp * 1.6 + ph)) * size.height
-            let pulse = 0.35 + 0.65 * max(0, sin(t * 0.9 + ph * 3))
-            let r = 2.2 + 1.2 * pulse
-            gc.fill(Path(ellipseIn: CGRect(x: x - r * 5, y: y - r * 5, width: r * 10, height: r * 10)),
-                    with: .radialGradient(Gradient(colors: [glow.opacity(0.35 * pulse), .clear]),
-                                          center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r * 5))
-            gc.fill(Path(ellipseIn: CGRect(x: x - r / 2, y: y - r / 2, width: r, height: r)), with: .color(glow.opacity(0.6 + 0.4 * pulse)))
-        }
-    }
-
-    /// Layers of slow waves rolling along the bottom of the screen.
-    static func tide(_ gc: inout GraphicsContext, _ size: CGSize, _ t: Double, color: Color) {
-        let layers = 4
-        for i in 0..<layers {
-            let k = Double(i)
-            let base = size.height * (0.55 + 0.1 * k)
-            let amp = 18.0 + 8 * k
-            let speed = 0.25 + 0.12 * k
-            var p = Path()
-            p.move(to: CGPoint(x: 0, y: size.height))
-            var x = 0.0
-            while x <= size.width + 8 {
-                let y = base + sin(x / (90 + 25 * k) + t * speed + k) * amp + sin(x / 41 - t * speed * 1.7) * amp * 0.25
-                p.addLine(to: CGPoint(x: x, y: y))
-                x += 8
-            }
-            p.addLine(to: CGPoint(x: size.width, y: size.height))
-            p.closeSubpath()
-            gc.fill(p, with: .color(color.opacity(0.08 + 0.05 * k)))
-        }
-    }
-
-    /// Stars streaming slowly out from the middle, like gliding through space.
-    static func warp(_ gc: inout GraphicsContext, _ size: CGSize, _ t: Double, glow: Color) {
-        let c = CGPoint(x: size.width / 2, y: size.height * 0.4)
-        gc.fill(Path(ellipseIn: CGRect(x: c.x - size.width * 0.6, y: c.y - size.width * 0.6, width: size.width * 1.2, height: size.width * 1.2)),
-                with: .radialGradient(Gradient(colors: [glow.opacity(0.25), .clear]), center: c, startRadius: 0, endRadius: size.width * 0.6))
-        var rng = SeededRNG(seed: 11)
-        let reach = hypot(size.width, size.height) * 0.6
-        for _ in 0..<90 {
-            let angle = Double.random(in: 0...(2 * .pi), using: &rng)
-            let offset = Double.random(in: 0...1, using: &rng)
-            let speed = Double.random(in: 0.04...0.09, using: &rng)
-            let d = (offset + t * speed).truncatingRemainder(dividingBy: 1) // 0 → 1, then starts over
-            let dist = d * d * reach
-            let x = c.x + cos(angle) * dist, y = c.y + sin(angle) * dist
-            let len = 2 + d * 14
-            var line = Path()
-            line.move(to: CGPoint(x: x, y: y))
-            line.addLine(to: CGPoint(x: x - cos(angle) * len, y: y - sin(angle) * len))
-            gc.stroke(line, with: .color(.white.opacity(0.15 + 0.7 * d)), lineWidth: 0.8 + d * 1.4)
-        }
-    }
-}

@@ -43,4 +43,5 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         NSPhotoLibraryAddUsageDescription: Tunes saves your Wrapped share cards to Photos.
+        NSLocationWhenInUseUsageDescription: The Weather theme uses your rough location to match the weather outside. It's only used to look up the weather.
         ITSAppUsesNonExemptEncryption: false

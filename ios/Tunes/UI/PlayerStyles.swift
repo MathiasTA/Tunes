@@ -17,8 +17,9 @@ struct VinylView: View {
     @State private var lastSeek = Date.distantPast
     @State private var lastTick: Int = 0
 
-    /// A real record turns at 33⅓ rpm: 200° per second.
-    private let degreesPerSecond: Double = 200
+    /// While playing on its own the record turns calmly (a real 33⅓ rpm looks frantic on a phone).
+    /// Spinning it by hand is separate: the record follows your finger, and a turn moves 12 seconds.
+    private let degreesPerSecond: Double = 70
     /// When scratching, one full turn moves 12 seconds.
     private let secondsPerTurn: Double = 12
 
@@ -104,7 +105,7 @@ struct VinylView: View {
 
 // MARK: - Cassette
 
-/// A cassette tape: the cover on the label, tape winding from one reel to the other through the window.
+/// A clean, minimal cassette: one soft shell, a simple label, and two reels winding the tape across.
 struct CassetteView: View {
     let song: Song
     let size: CGFloat
@@ -113,146 +114,99 @@ struct CassetteView: View {
 
     var body: some View {
         let p = app.player
-        let w = size, h = size * 0.63
+        let w = size, h = size * 0.62
         let progress = p.duration > 0 ? min(1, max(0, p.elapsed / p.duration)) : 0
-        let angle = p.position * 140
+        let angle = p.position * 120
+        let shellShape = RoundedRectangle(cornerRadius: w * 0.06, style: .continuous)
         ZStack {
-            shell(w, h)
-            label(w, h, progress: progress, angle: angle)
-                .frame(width: w * 0.86, height: h * 0.66)
-                .offset(y: -h * 0.1)
-            bottomPlate(w, h)
-            ForEach(0..<4, id: \.self) { i in
-                screw(w * 0.032)
-                    .offset(x: (i % 2 == 0 ? -1 : 1) * w * 0.455, y: (i < 2 ? -1 : 1) * h * 0.42)
+            // Shell: one color, a hairline highlight on top
+            shellShape
+                .fill(LinearGradient(colors: [Color(white: 0.17), Color(white: 0.11)], startPoint: .top, endPoint: .bottom))
+                .overlay(shellShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+
+            VStack(spacing: h * 0.07) {
+                labelStrip(w)
+                window(w * 0.62, h * 0.3, progress: progress, angle: angle)
             }
-            screw(w * 0.028).offset(y: h * 0.42)
+            .offset(y: -h * 0.04)
+
+            // The tape-head edge: just an outline
+            CassetteBottom()
+                .stroke(Color.white.opacity(0.09), lineWidth: 1)
+                .frame(width: w * 0.6, height: h * 0.13)
+                .offset(y: h * 0.435)
+
+            ForEach(0..<4, id: \.self) { i in
+                Circle().fill(Color.white.opacity(0.14)).frame(width: w * 0.018)
+                    .offset(x: (i % 2 == 0 ? -1 : 1) * w * 0.44, y: (i < 2 ? -1 : 1) * h * 0.4)
+            }
         }
         .frame(width: w, height: h)
-        .scaleEffect(p.isPlaying ? 1 : 0.96)
-        .animation(.spring(response: 0.45, dampingFraction: 0.75), value: p.isPlaying)
+        .scaleEffect(p.isPlaying ? 1 : 0.97)
+        .animation(.spring(response: 0.45, dampingFraction: 0.8), value: p.isPlaying)
     }
 
-    private func shell(_ w: CGFloat, _ h: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: w * 0.045, style: .continuous)
-            .fill(LinearGradient(colors: [Color(white: 0.24), Color(white: 0.13), Color(white: 0.09)], startPoint: .top, endPoint: .bottom))
-            .overlay(
-                RoundedRectangle(cornerRadius: w * 0.045, style: .continuous)
-                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.03)], startPoint: .top, endPoint: .bottom), lineWidth: 1.2)
-            )
-            .shadow(color: .black.opacity(0.5), radius: 22, y: 12)
-    }
-
-    private func label(_ w: CGFloat, _ h: CGFloat, progress: Double, angle: Double) -> some View {
-        let lw = w * 0.86, lh = h * 0.66
-        return ZStack {
-            // Label paper tinted with the cover
-            song.artwork(lw)
-                .frame(width: lw, height: lh).clipped()
-                .blur(radius: 18).saturation(1.3)
-                .overlay(LinearGradient(colors: [.black.opacity(0.05), .black.opacity(0.35)], startPoint: .top, endPoint: .bottom))
-            VStack(spacing: 0) {
-                // Writing strip
-                HStack(spacing: lw * 0.03) {
-                    Text("A").font(.system(size: lw * 0.07, weight: .black, design: .rounded))
-                        .foregroundStyle(look.accent)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(song.title).font(.system(size: lw * 0.055, weight: .bold, design: .rounded)).lineLimit(1)
-                        Text(song.artistLine).font(.system(size: lw * 0.04, weight: .medium, design: .rounded)).opacity(0.65).lineLimit(1)
-                    }
-                    .foregroundStyle(Color(white: 0.12))
-                    Spacer(minLength: 0)
-                    song.artwork(lh * 0.24).clipShape(RoundedRectangle(cornerRadius: 3))
-                }
-                .padding(.horizontal, lw * 0.04)
-                .frame(height: lh * 0.32)
-                .background(Color(red: 0.96, green: 0.94, blue: 0.89))
-                .overlay(alignment: .bottom) { Rectangle().fill(look.accent).frame(height: 2) }
-                Spacer(minLength: 0)
-                window(lw, lh, progress: progress, angle: angle)
-                Spacer(minLength: 0)
+    /// A paper label: small cover, title and artist, a thin accent line.
+    private func labelStrip(_ w: CGFloat) -> some View {
+        HStack(spacing: w * 0.035) {
+            song.artwork(w * 0.11).clipShape(RoundedRectangle(cornerRadius: w * 0.015, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(song.title).font(.system(size: w * 0.048, weight: .semibold)).lineLimit(1)
+                Text(song.artistLine).font(.system(size: w * 0.036)).foregroundStyle(Color.black.opacity(0.5)).lineLimit(1)
             }
+            .foregroundStyle(Color.black.opacity(0.85))
+            Spacer(minLength: 0)
+            Text("A").font(.system(size: w * 0.05, weight: .bold, design: .rounded)).foregroundStyle(look.accent)
         }
-        .clipShape(RoundedRectangle(cornerRadius: w * 0.025, style: .continuous))
+        .padding(.horizontal, w * 0.035)
+        .frame(width: w * 0.82, height: w * 0.16)
+        .background(Color(red: 0.95, green: 0.94, blue: 0.91), in: RoundedRectangle(cornerRadius: w * 0.025, style: .continuous))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(look.accent).frame(height: 2).padding(.horizontal, w * 0.035).padding(.bottom, w * 0.018)
+        }
     }
 
-    /// The see-through window with both reels and the tape running along the bottom.
-    private func window(_ lw: CGFloat, _ lh: CGFloat, progress: Double, angle: Double) -> some View {
-        let ww = lw * 0.64, wh = lh * 0.4
-        let hub = ww * 0.13
+    /// The window: tape packs that grow and shrink, two turning hubs.
+    private func window(_ ww: CGFloat, _ wh: CGFloat, progress: Double, angle: Double) -> some View {
+        let shape = Capsule(style: .continuous)
         let reelX = ww * 0.27
-        let maxPack = ww * 0.42
-        func pack(_ amount: Double) -> CGFloat { hub * 1.15 + (maxPack - hub * 1.15) * CGFloat(amount) }
+        let hub = wh * 0.42
+        func pack(_ amount: Double) -> CGFloat { hub + (wh * 1.25 - hub) * CGFloat(amount) }
         return ZStack {
-            RoundedRectangle(cornerRadius: wh * 0.5, style: .continuous).fill(Color.black.opacity(0.78))
+            shape.fill(Color.black.opacity(0.55))
             ZStack {
-                // Tape packs (the wound-up tape), brown and glossy
                 tapePack(pack(1 - progress)).offset(x: -reelX)
                 tapePack(pack(progress)).offset(x: reelX)
-                // Tape running between the reels
-                Rectangle().fill(Color(red: 0.3, green: 0.18, blue: 0.11)).frame(width: reelX * 2, height: 1.5)
-                    .offset(y: wh * 0.36)
                 hubView(hub, angle: angle).offset(x: -reelX)
-                hubView(hub, angle: angle * 0.9 + 17).offset(x: reelX)
+                hubView(hub, angle: angle + 30).offset(x: reelX)
             }
-            .clipShape(RoundedRectangle(cornerRadius: wh * 0.5, style: .continuous))
-            RoundedRectangle(cornerRadius: wh * 0.5, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-            // Glass glare
-            RoundedRectangle(cornerRadius: wh * 0.5, style: .continuous)
-                .fill(LinearGradient(colors: [.white.opacity(0.12), .clear], startPoint: .top, endPoint: .center))
-                .allowsHitTesting(false)
+            .clipShape(shape)
+            shape.strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
         }
         .frame(width: ww, height: wh)
     }
 
     private func tapePack(_ d: CGFloat) -> some View {
-        Circle()
-            .fill(RadialGradient(colors: [Color(red: 0.36, green: 0.22, blue: 0.14), Color(red: 0.2, green: 0.12, blue: 0.08)],
-                                 center: .center, startRadius: 0, endRadius: d / 2))
+        Circle().fill(Color(red: 0.24, green: 0.16, blue: 0.11))
             .frame(width: d, height: d)
             .animation(.easeInOut(duration: 0.5), value: d)
     }
 
-    /// A white reel hub with six teeth, turning.
+    /// A thin ring with three teeth.
     private func hubView(_ d: CGFloat, angle: Double) -> some View {
         ZStack {
-            Circle().fill(Color(white: 0.92)).frame(width: d, height: d)
-            Circle().fill(Color(white: 0.15)).frame(width: d * 0.62, height: d * 0.62)
-            ForEach(0..<6, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 1).fill(Color(white: 0.92))
-                    .frame(width: d * 0.12, height: d * 0.22)
-                    .offset(y: -d * 0.24)
-                    .rotationEffect(.degrees(Double(i) * 60))
+            Circle().strokeBorder(Color.white.opacity(0.85), lineWidth: d * 0.14)
+            ForEach(0..<3, id: \.self) { i in
+                Capsule().fill(Color.white.opacity(0.85))
+                    .frame(width: d * 0.12, height: d * 0.26)
+                    .offset(y: -d * 0.26)
+                    .rotationEffect(.degrees(Double(i) * 120))
             }
         }
+        .frame(width: d, height: d)
         .rotationEffect(.degrees(angle))
         .animation(.linear(duration: 0.04), value: angle)
-    }
-
-    /// The raised part at the bottom where the tape head touches, with its holes.
-    private func bottomPlate(_ w: CGFloat, _ h: CGFloat) -> some View {
-        ZStack {
-            CassetteBottom()
-                .fill(LinearGradient(colors: [Color(white: 0.19), Color(white: 0.11)], startPoint: .top, endPoint: .bottom))
-                .overlay(CassetteBottom().stroke(Color.white.opacity(0.1), lineWidth: 1))
-            HStack(spacing: w * 0.09) {
-                Circle().fill(Color.black.opacity(0.85)).frame(width: w * 0.035)
-                RoundedRectangle(cornerRadius: 1.5).fill(Color.black.opacity(0.85)).frame(width: w * 0.05, height: w * 0.03)
-                RoundedRectangle(cornerRadius: 1.5).fill(Color.black.opacity(0.85)).frame(width: w * 0.05, height: w * 0.03)
-                Circle().fill(Color.black.opacity(0.85)).frame(width: w * 0.035)
-            }
-            .offset(y: h * 0.02)
-        }
-        .frame(width: w * 0.66, height: h * 0.17)
-        .offset(y: h * 0.415)
-    }
-
-    private func screw(_ d: CGFloat) -> some View {
-        Circle()
-            .fill(RadialGradient(colors: [Color(white: 0.6), Color(white: 0.3)], center: .topLeading, startRadius: 0, endRadius: d))
-            .frame(width: d, height: d)
-            .overlay(Rectangle().fill(Color(white: 0.2)).frame(width: d * 0.7, height: d * 0.14).rotationEffect(.degrees(35)))
     }
 }
 
@@ -260,12 +214,11 @@ struct CassetteView: View {
 private struct CassetteBottom: Shape {
     func path(in r: CGRect) -> Path {
         var p = Path()
-        let inset = r.width * 0.09
-        p.move(to: CGPoint(x: r.minX + inset, y: r.minY))
+        let inset = r.width * 0.08
+        p.move(to: CGPoint(x: r.minX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX + inset, y: r.minY))
         p.addLine(to: CGPoint(x: r.maxX - inset, y: r.minY))
         p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
-        p.closeSubpath()
         return p
     }
 }
@@ -328,9 +281,10 @@ struct ProgressBarArt: View {
                             // Only a very faint guide for the part still to play.
                             Capsule().fill(Color.primary.opacity(0.1)).frame(height: 2)
                                 .padding(.leading, w * f)
-                            Squiggle(phase: phase, amplitude: playing ? h * 0.28 : 0)
+                            // Ends at the dot's center (the round cap stays hidden under the dot).
+                            Squiggle(phase: phase, amplitude: playing ? h * 0.28 : 0, taper: 14)
                                 .stroke(look.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                                .frame(width: w * f, height: h)
+                                .frame(width: max(0, w * f - 2), height: h)
                                 .animation(.easeInOut(duration: 0.3), value: playing)
                         }
                         .frame(height: h)
@@ -365,6 +319,8 @@ struct Squiggle: Shape {
     var amplitude: CGFloat
     /// Points per radian: smaller means tighter waves.
     var wavelength: Double = 7
+    /// Over this many points at the end the wave flattens out, so it runs straight into the progress dot.
+    var taper: CGFloat = 0
     var animatableData: CGFloat {
         get { amplitude }
         set { amplitude = newValue }
@@ -373,12 +329,19 @@ struct Squiggle: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let mid = rect.midY
-        p.move(to: CGPoint(x: 0, y: mid))
-        var x: CGFloat = 0
-        while x <= rect.width {
-            p.addLine(to: CGPoint(x: x, y: mid + sin(Double(x) / wavelength - phase) * amplitude))
+        func y(_ x: CGFloat) -> CGFloat {
+            let fade = taper > 0 ? min(1, max(0, (rect.width - x) / taper)) : 1
+            // Smooth ease so the flattening has no kink.
+            let ease = fade * fade * (3 - 2 * fade)
+            return mid + CGFloat(sin(Double(x) / wavelength - phase)) * amplitude * ease
+        }
+        p.move(to: CGPoint(x: 0, y: y(0)))
+        var x: CGFloat = 2
+        while x < rect.width {
+            p.addLine(to: CGPoint(x: x, y: y(x)))
             x += 2
         }
+        if rect.width > 0 { p.addLine(to: CGPoint(x: rect.width, y: y(rect.width))) }
         return p
     }
 }

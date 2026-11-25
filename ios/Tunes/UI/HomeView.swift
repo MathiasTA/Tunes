@@ -174,6 +174,8 @@ struct HomeView: View {
     private func sectionView(_ section: HomeSection) -> some View {
         if section.kind == .summary {
             summary
+        } else if section.kind == .dice {
+            DiceBlock()
         } else if section.kind == .badges {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -285,7 +287,7 @@ struct HomeView: View {
             return list
         case .favoriteAlbums:
             return favoriteAlbums()
-        case .badges:
+        case .badges, .dice:
             return []
         }
     }
