@@ -576,56 +576,85 @@ struct ThemeSwatch: View {
     let theme: ThemeMode
     @Environment(AppModel.self) private var app
 
-    var body: some View {
-        let palette: Palette? = switch theme {
-        case .horizon: HorizonPhase.at(.now).palette
-        case .dynamic: nil
-        default: theme.palette
+    private var palette: ThemePalette? {
+        switch theme {
+        case .horizon: return HorizonPhase.at(.now).palette
+        case .dynamic: return nil
+        default: return theme.palette
         }
+    }
+
+    var body: some View {
         ZStack(alignment: .bottomLeading) {
-            switch theme {
-            case .dark: Color(white: 0.075)
-            case .black: Color.black
-            case .light: Color(white: 0.97)
-            case .auto: HStack(spacing: 0) { Color(white: 0.97); Color(white: 0.075) }
-            case .dynamic:
-                // A rainbow of covers, since it changes with every song.
-                AngularGradient(colors: ["#F43F5E", "#F59E0B", "#22C55E", "#06B6D4", "#8B5CF6", "#F43F5E"].map { Color(hex: $0) }, center: .center)
-                    .blur(radius: 8)
-                    .overlay(Color.black.opacity(0.35))
-            default:
-                if let p = palette {
-                    if !p.lights.isEmpty {
-                        ZStack {
-                            p.colors.first ?? .black
-                            Circle().fill(p.lights[0].opacity(0.65)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
-                            Circle().fill(p.lights[1].opacity(0.65)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
-                        }
-                    } else {
-                        LinearGradient(colors: p.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                            .overlay(alignment: .topTrailing) {
-                                if let g = p.glow.first { Circle().fill(g.opacity(0.5)).frame(width: 40).blur(radius: 12).offset(x: 10, y: -10) }
-                            }
-                    }
-                    if p.stars {
-                        ForEach(0..<6, id: \.self) { i in
-                            Circle().fill(.white).frame(width: 2, height: 2)
-                                .offset(x: CGFloat([-22, -8, 6, 18, -16, 24][i]), y: CGFloat([-20, 12, -14, 18, 4, -4][i]))
-                        }
-                    }
-                    if p.grid {
-                        VStack(spacing: 4) { ForEach(0..<4, id: \.self) { _ in Rectangle().fill((p.glow.last ?? .cyan).opacity(0.5)).frame(height: 1) } }
-                            .frame(maxHeight: .infinity, alignment: .bottom).padding(.bottom, 4)
-                    }
+            backdrop
+            sample
+        }
+    }
+
+    @ViewBuilder private var backdrop: some View {
+        switch theme {
+        case .dark: Color(white: 0.075)
+        case .black: Color.black
+        case .light: Color(white: 0.97)
+        case .auto: HStack(spacing: 0) { Color(white: 0.97); Color(white: 0.075) }
+        case .dynamic: rainbow
+        default:
+            if let p = palette { paletteBackdrop(p) } else { Color.gray }
+        }
+    }
+
+    /// A rainbow of covers, since Dynamic changes with every song.
+    private var rainbow: some View {
+        let hexes = ["#F43F5E", "#F59E0B", "#22C55E", "#06B6D4", "#8B5CF6", "#F43F5E"]
+        return AngularGradient(colors: hexes.map { Color(hex: $0) }, center: .center)
+            .blur(radius: 8)
+            .overlay(Color.black.opacity(0.35))
+    }
+
+    @ViewBuilder private func paletteBackdrop(_ p: ThemePalette) -> some View {
+        ZStack {
+            if p.lights.count >= 2 {
+                p.colors.first ?? .black
+                Circle().fill(p.lights[0].opacity(0.65)).frame(width: 50).blur(radius: 14).offset(x: -14, y: -14)
+                Circle().fill(p.lights[1].opacity(0.65)).frame(width: 44).blur(radius: 14).offset(x: 16, y: 6)
+            } else {
+                LinearGradient(colors: p.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let g = p.glow.first {
+                    Circle().fill(g.opacity(0.5)).frame(width: 40).blur(radius: 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
             }
-            HStack(spacing: 4) {
-                RoundedRectangle(cornerRadius: 3).fill(((palette?.scheme ?? theme.scheme) == .light ? Color.black : Color.white).opacity(0.18))
-                    .frame(width: 26, height: 8)
-                Circle().fill(palette?.accent ?? Color(hex: app.prefs.data.accentHex)).frame(width: 9, height: 9)
-            }
-            .padding(7)
+            if p.stars { starDots }
+            if p.grid { gridLines(p.glow.last ?? .cyan) }
         }
+    }
+
+    private var starDots: some View {
+        let xs: [CGFloat] = [-22, -8, 6, 18, -16, 24]
+        let ys: [CGFloat] = [-20, 12, -14, 18, 4, -4]
+        return ZStack {
+            ForEach(0..<6, id: \.self) { i in
+                Circle().fill(.white).frame(width: 2, height: 2).offset(x: xs[i], y: ys[i])
+            }
+        }
+    }
+
+    private func gridLines(_ c: Color) -> some View {
+        VStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { _ in Rectangle().fill(c.opacity(0.5)).frame(height: 1) }
+        }
+        .frame(maxHeight: .infinity, alignment: .bottom)
+        .padding(.bottom, 4)
+    }
+
+    private var sample: some View {
+        let light = (palette?.scheme ?? theme.scheme) == .light
+        let accent = palette?.accent ?? Color(hex: app.prefs.data.accentHex)
+        return HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 3).fill((light ? Color.black : Color.white).opacity(0.18)).frame(width: 26, height: 8)
+            Circle().fill(accent).frame(width: 9, height: 9)
+        }
+        .padding(7)
     }
 }
 

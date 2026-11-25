@@ -253,7 +253,12 @@ struct ProgressBarArt: View {
         }
     }
 
-    static let placeholder: [Float] = (0..<48).map { i in Float(0.35 + 0.3 * abs(sin(Double(i) * 0.7)) + 0.2 * abs(sin(Double(i) * 0.23))) }
+    static let placeholder: [Float] = (0..<48).map { i -> Float in
+        let x = Double(i)
+        let a: Double = abs(sin(x * 0.7))
+        let b: Double = abs(sin(x * 0.23))
+        return Float(0.35 + 0.3 * a + 0.2 * b)
+    }
 }
 
 /// A wavy line, like a moving sound wave.

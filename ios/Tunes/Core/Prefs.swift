@@ -371,7 +371,7 @@ struct Look: Equatable {
     var accent: Color = Color(hex: "#34D399")
     var theme: ThemeMode = .dark
     /// The resolved colors of non-classic themes (Dynamic and Horizon change over time).
-    var palette: Palette? = nil
+    var palette: ThemePalette? = nil
     var black: Bool { theme == .black }
     var corner: CGFloat = 1
     var artShape: ArtShape = .soft
@@ -410,7 +410,7 @@ extension Prefs {
 
     /// The look at a given moment: Horizon depends on the time, Dynamic on the cover that's playing.
     func look(at date: Date, cover: CoverColors?) -> Look {
-        let palette: Palette? = switch data.theme {
+        let palette: ThemePalette? = switch data.theme {
         case .horizon: HorizonPhase.at(date).palette
         case .dynamic: (cover ?? .fallback).palette
         default: data.theme.palette

@@ -285,6 +285,8 @@ struct HomeView: View {
             return list
         case .favoriteAlbums:
             return favoriteAlbums()
+        case .badges:
+            return []
         }
     }
 

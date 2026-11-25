@@ -33,10 +33,10 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
     ]
 
     /// Static look of the gradient and animated themes.
-    var palette: Palette? {
+    var palette: ThemePalette? {
         func p(_ colors: [String], bar: String, scheme: ColorScheme = .dark, glow: [String] = [], accent: String,
-               lights: [String] = [], opacity: Double = 0.3, seconds: Double = 18, stars: Bool = false, grid: Bool = false) -> Palette {
-            Palette(colors: colors.map { Color(hex: $0) }, bar: Color(hex: bar), scheme: scheme, glow: glow.map { Color(hex: $0) },
+               lights: [String] = [], opacity: Double = 0.3, seconds: Double = 18, stars: Bool = false, grid: Bool = false) -> ThemePalette {
+            ThemePalette(colors: colors.map { Color(hex: $0) }, bar: Color(hex: bar), scheme: scheme, glow: glow.map { Color(hex: $0) },
                     lights: lights.map { Color(hex: $0) }, lightOpacity: opacity, lightSeconds: seconds, stars: stars, grid: grid,
                     accent: Color(hex: accent), accentHex: accent)
         }
@@ -75,7 +75,7 @@ enum ThemeMode: String, Codable, CaseIterable, Identifiable {
 }
 
 /// Everything that decides how a non-classic theme looks.
-struct Palette: Equatable {
+struct ThemePalette: Equatable {
     var colors: [Color]
     var bar: Color
     var scheme: ColorScheme
@@ -121,9 +121,9 @@ enum HorizonPhase: String, CaseIterable {
         }
     }
 
-    var palette: Palette {
-        func p(_ c: [String], bar: String, _ scheme: ColorScheme, glow: [String], accent: String, stars: Bool = false) -> Palette {
-            Palette(colors: c.map { Color(hex: $0) }, bar: Color(hex: bar), scheme: scheme, glow: glow.map { Color(hex: $0) },
+    var palette: ThemePalette {
+        func p(_ c: [String], bar: String, _ scheme: ColorScheme, glow: [String], accent: String, stars: Bool = false) -> ThemePalette {
+            ThemePalette(colors: c.map { Color(hex: $0) }, bar: Color(hex: bar), scheme: scheme, glow: glow.map { Color(hex: $0) },
                     stars: stars, accent: Color(hex: accent), accentHex: accent)
         }
         switch self {
@@ -147,8 +147,8 @@ struct CoverColors: Equatable {
     var accent: Color
     var accentHex: String
 
-    var palette: Palette {
-        Palette(colors: [top, bottom.opacity(1)], bar: bottom, scheme: .dark, glow: [accent],
+    var palette: ThemePalette {
+        ThemePalette(colors: [top, bottom.opacity(1)], bar: bottom, scheme: .dark, glow: [accent],
                 accent: accent, accentHex: accentHex)
     }
 
@@ -282,7 +282,7 @@ struct ThemeBackground: View {
 
 /// A gradient with soft, still glows for depth (plus stars or a retro grid on some themes).
 private struct GlowGradient: View {
-    let palette: Palette
+    let palette: ThemePalette
     var body: some View {
         let light = palette.scheme == .light
         GeometryReader { g in
@@ -362,7 +362,7 @@ struct Stars: View {
 
 /// Three large, heavily blurred lights that drift slowly back and forth. Only offsets animate, so it's cheap to draw.
 private struct DriftingLights: View {
-    let palette: Palette
+    let palette: ThemePalette
     @State private var drift = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

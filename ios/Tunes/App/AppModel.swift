@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 import UIKit
 
 enum Haptic { case light, medium, success, warning, selection }
