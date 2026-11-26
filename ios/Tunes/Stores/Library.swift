@@ -37,6 +37,12 @@ final class Library {
 
     @ObservationIgnored private var index: [Int: Int] = [:]
     @ObservationIgnored private var pending: [(song: Song, video: VideoCandidate?)] = []
+    /// YouTube limits downloads per network: after a few refusals in a row, wait (5, 15, then 30 minutes)
+    /// or until the phone switches network.
+    @ObservationIgnored private var refusedInARow = 0
+    @ObservationIgnored private var limitLevel = 0
+    @ObservationIgnored private var limitedOnWiFi: Bool?
+    private(set) var limitedUntil: Date?
     @ObservationIgnored private var active = 0
     private let saveDebouncer = Debouncer(.milliseconds(500))
 
@@ -167,16 +173,28 @@ final class Library {
             for p in pending { states[p.song.id] = .waiting("Waiting for Wi-Fi") }
             return
         }
+        if let until = limitedUntil {
+            if Date.now >= until || (limitedOnWiFi != nil && limitedOnWiFi != net.isWiFi) {
+                limitedUntil = nil
+                refusedInARow = 0
+            } else {
+                let time = until.formatted(date: .omitted, time: .shortened)
+                for p in pending { states[p.song.id] = .waiting("YouTube is limiting downloads on this network. Switch to mobile data or Wi-Fi, or Tunes tries again at \(time).") }
+                return
+            }
+        }
         if prefs.storageLimitGB > 0, Paths.size(of: Paths.audioDir) > Int64(prefs.storageLimitGB) * 1_000_000_000 {
             for p in pending { states[p.song.id] = .failed("Storage limit reached") }
             pending.removeAll()
             return
         }
-        while active < 3, !pending.isEmpty {
+        // Two at a time, with a short pause in big batches, so YouTube's limit is hit less often.
+        while active < 2, !pending.isEmpty {
             let next = pending.removeFirst()
             active += 1
             Task {
                 await perform(next.song, video: next.video)
+                if pending.count > 3 { try? await Task.sleep(for: .seconds(1.5)) }
                 active -= 1
                 pump()
             }
@@ -223,12 +241,33 @@ final class Library {
             jobs[id] = nil
             lastTried[id] = nil
             batchDone += 1
+            refusedInARow = 0
+            limitLevel = 0
             analyze(id)
             AppModel.shared.haptic(.success)
         } catch is CancellationError {
             states[id] = nil
             jobs[id] = nil
         } catch {
+            if case YouTubeError.http(403) = error {
+                refusedInARow += 1
+                if refusedInARow >= 3 {
+                    // The network is being limited: pause everything and try again later instead of failing.
+                    let minutes = [5, 15, 30][min(limitLevel, 2)]
+                    limitLevel += 1
+                    limitedUntil = Date.now.addingTimeInterval(Double(minutes) * 60)
+                    limitedOnWiFi = AppModel.shared.network.isWiFi
+                    pending.insert((song, video), at: 0)
+                    let time = limitedUntil?.formatted(date: .omitted, time: .shortened) ?? ""
+                    states[id] = .waiting("YouTube is limiting downloads on this network. Switch to mobile data or Wi-Fi, or Tunes tries again at \(time).")
+                    if limitLevel == 1 { AppModel.shared.show("YouTube is limiting downloads on this network. Try mobile data, or Tunes retries in \(minutes) min.") }
+                    Task {
+                        try? await Task.sleep(for: .seconds(Double(minutes) * 60 + 1))
+                        pump()
+                    }
+                    return
+                }
+            }
             failedStep[id] = step
             states[id] = .failed(error.localizedDescription)
             batchDone += 1

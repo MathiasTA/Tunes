@@ -91,6 +91,7 @@ final class AppModel {
         playlists.createDailyMixesIfNeeded()
         playlists.syncHomeCharts(prefs.data.homeCharts)
         library.analyzeMissing()
+        stats.removeUnknownImports()
         stats.mergeVersions(library)
         pickSongOfTheDay()
         UIDevice.current.isBatteryMonitoringEnabled = true

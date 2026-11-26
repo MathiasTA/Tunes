@@ -176,6 +176,9 @@ enum SpotifyImport {
             let ms = (item["ms_played"] as? Double) ?? (item["msPlayed"] as? Double)
                 ?? (item["ms_played"] as? Int).map(Double.init) ?? (item["msPlayed"] as? Int).map(Double.init)
             guard let title, let artist, let ms, ms >= 5000 else { continue }
+            // Podcasts, local files and removed tracks come without a real song or artist.
+            if item["episode_name"] is String || item["audiobook_title"] is String { continue }
+            if SpotifyImport.isUnknown(title) || SpotifyImport.isUnknown(artist) { continue }
             var end: Date?
             if let ts = item["ts"] as? String { end = iso.date(from: ts) }
             if end == nil, let et = item["endTime"] as? String { end = basic.date(from: et) }
@@ -184,5 +187,14 @@ enum SpotifyImport {
             out.append(HistoryPlay(title: title, artist: artist, start: end.addingTimeInterval(-seconds), seconds: seconds))
         }
         return out
+    }
+}
+
+
+extension SpotifyImport {
+    /// Spotify's placeholders for plays with no real song or artist.
+    nonisolated static func isUnknown(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["", "unknown", "unknown artist", "an unknown artist", "unknown track", "unknown song", "unknown title", "<unknown>"].contains(t)
     }
 }

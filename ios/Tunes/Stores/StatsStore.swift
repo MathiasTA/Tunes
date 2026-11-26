@@ -53,6 +53,13 @@ final class StatsStore {
     }
 
     /// Points plays of the same song (single and album version) at one ID, so they count together.
+    /// Removes imported Spotify plays that had no real song or artist (shown as "unknown").
+    func removeUnknownImports() {
+        let before = records.count
+        records.removeAll { $0.origin == .spotify && (SpotifyImport.isUnknown($0.title) || SpotifyImport.isUnknown($0.artist.name)) }
+        if records.count != before { version += 1; scheduleSave() }
+    }
+
     func mergeVersions(_ lib: Library) {
         let map = SongMatch.canonical(lib)
         var byKey: [String: Int] = [:]

@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import YouTubeKit
 
@@ -148,21 +149,68 @@ enum YouTubeMedia {
         allowRemote ? YouTube(videoID: id, methods: [.local, .remote]) : YouTube(videoID: id, methods: [.local])
     }
 
-    /// Downloads the audio track as .m4a (AAC, which iOS plays natively).
+    /// Downloads the audio track as .m4a (AAC, which iOS plays natively). YouTube sometimes refuses audio-only
+    /// files (error 403), so this tries several ways: every m4a audio file, byte ranges in the URL like YouTube's own
+    /// apps, and finally the regular video file with the audio pulled out on the phone. Remote extraction comes last.
     static func downloadAudio(videoID: String, to dest: URL, saveSpace: Bool, allowRemote: Bool,
                               progress: @escaping @Sendable (Double) -> Void) async throws {
-        let streams: [YouTubeKit.Stream]
-        do {
-            streams = try await video(videoID, allowRemote: allowRemote).streams
-        } catch {
-            throw YouTubeError.extraction(String(describing: error))
+        var lastError: Error = YouTubeError.noAudio
+        for remote in allowRemote ? [false, true] : [false] {
+            let streams: [YouTubeKit.Stream]
+            do {
+                streams = try await video(videoID, allowRemote: remote).streams
+            } catch {
+                lastError = YouTubeError.extraction(String(describing: error))
+                continue
+            }
+            let m4a = streams.filterAudioOnly().filter { $0.fileExtension == .m4a }
+            var ordered: [YouTubeKit.Stream] = []
+            if let first = saveSpace ? m4a.lowestAudioBitrateStream() : m4a.highestAudioBitrateStream() { ordered.append(first) }
+            ordered += m4a.filter { s in !ordered.contains { $0.url == s.url } }
+            if ordered.isEmpty, let other = streams.filterAudioOnly().filter({ $0.isNativelyPlayable }).highestAudioBitrateStream() { ordered = [other] }
+            for stream in ordered.prefix(3) {
+                do {
+                    try await Net.fetchInChunks(stream.url, to: dest, progress: progress)
+                    return
+                } catch let e as YouTubeError {
+                    lastError = e
+                    guard case .http(403) = e else { continue }
+                    do {
+                        try await Net.fetchInChunks(stream.url, to: dest, rangeInURL: true, progress: progress)
+                        return
+                    } catch { lastError = error }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch { lastError = error }
+            }
+            // Last resort: the regular video file (refused far less often), keeping only its audio.
+            if let combined = streams.filterVideoAndAudio().filter({ $0.isNativelyPlayable }).highestResolutionStream() {
+                let tmp = dest.deletingLastPathComponent().appending(path: UUID().uuidString + ".mp4")
+                defer { try? FileManager.default.removeItem(at: tmp) }
+                do {
+                    try await Net.fetchInChunks(combined.url, to: tmp) { p in progress(p * 0.9) }
+                    try await extractAudio(from: tmp, to: dest)
+                    progress(1)
+                    return
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch { lastError = error }
+            }
         }
-        let m4a = streams.filterAudioOnly().filter { $0.fileExtension == .m4a }
-        let pick = saveSpace ? m4a.lowestAudioBitrateStream() : m4a.highestAudioBitrateStream()
-        guard let stream = pick ?? streams.filterAudioOnly().filter({ $0.isNativelyPlayable }).highestAudioBitrateStream() else {
-            throw YouTubeError.noAudio
-        }
-        try await Net.fetchInChunks(stream.url, to: dest, progress: progress)
+        throw lastError
+    }
+
+    /// Pulls the audio track out of a video file into an .m4a.
+    static func extractAudio(from video: URL, to dest: URL) async throws {
+        let asset = AVURLAsset(url: video)
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else { throw YouTubeError.noAudio }
+        let out = dest.deletingLastPathComponent().appending(path: UUID().uuidString + ".m4a")
+        export.outputURL = out
+        export.outputFileType = .m4a
+        await export.export()
+        guard export.status == .completed else { throw YouTubeError.noAudio }
+        try? FileManager.default.removeItem(at: dest)
+        try FileManager.default.moveItem(at: out, to: dest)
     }
 
     /// A streamable video URL (video + audio) for the video player.
@@ -178,7 +226,8 @@ enum YouTubeMedia {
 
 enum Net {
     /// YouTube throttles big single requests, so fetch ~10 MB ranges one after another.
-    static func fetchInChunks(_ url: URL, to dest: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+    static func fetchInChunks(_ url: URL, to dest: URL, rangeInURL: Bool = false,
+                              progress: @escaping @Sendable (Double) -> Void) async throws {
         let part = dest.deletingLastPathComponent().appending(path: UUID().uuidString + ".part")
         FileManager.default.createFile(atPath: part.path, contents: nil)
         let handle = try FileHandle(forWritingTo: part)
@@ -189,19 +238,27 @@ enum Net {
         }
         let chunk = 10_000_000
         var offset = 0
-        var total: Int?
+        // YouTube's file URLs carry their size ("clen"), used when asking for ranges in the URL.
+        var total: Int? = rangeInURL ? URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first { $0.name == "clen" }?.value.flatMap { Int($0) } : nil
         while true {
             try Task.checkCancellation()
-            var req = URLRequest(url: url)
+            var req: URLRequest
+            if rangeInURL, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                c.queryItems = (c.queryItems ?? []).filter { $0.name != "range" } + [URLQueryItem(name: "range", value: "\(offset)-\(offset + chunk - 1)")]
+                req = URLRequest(url: c.url ?? url)
+            } else {
+                req = URLRequest(url: url)
+                req.setValue("bytes=\(offset)-\(offset + chunk - 1)", forHTTPHeaderField: "Range")
+            }
             req.timeoutInterval = 60
-            req.setValue("bytes=\(offset)-\(offset + chunk - 1)", forHTTPHeaderField: "Range")
             let (data, resp) = try await URLSession.shared.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw YouTubeError.http(0) }
             guard (200..<300).contains(http.statusCode) else { throw YouTubeError.http(http.statusCode) }
             if data.isEmpty { break }
             try handle.write(contentsOf: data)
             offset += data.count
-            if http.statusCode == 200 { break }
+            if http.statusCode == 200 && !rangeInURL { break }
             if total == nil {
                 total = http.value(forHTTPHeaderField: "Content-Range")
                     .flatMap { $0.split(separator: "/").last }
