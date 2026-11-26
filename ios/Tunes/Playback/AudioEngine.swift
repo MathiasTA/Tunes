@@ -107,6 +107,7 @@ final class AudioEngine {
         // Gapless: put the next song on the same deck, straight after this one. The player node then plays
         // the two back to back with no gap at all, sample for sample, which keeps album transitions intact.
         if overlap == 0, cur.pausedPosition == nil, let curFormat = cur.format {
+            guard cur.segmentEnd - position(of: cur) <= max(lead, 8) else { return false }
             let file = try AVAudioFile(forReading: item.url)
             let f = file.processingFormat
             if f.sampleRate == curFormat.sampleRate && f.channelCount == curFormat.channelCount {

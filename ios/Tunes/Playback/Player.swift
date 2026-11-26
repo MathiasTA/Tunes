@@ -56,7 +56,9 @@ final class Player {
 
     private func silence(_ e: LibraryEntry) -> (lead: Double, trail: Double)? {
         if let s = silences[e.id] { return s }
-        guard let a = AnalysisCache.load(e.id) else { return nil }
+        // Not analysed yet: don't read the disk again for a few seconds.
+        if let t = noAnalysis[e.id], Date.now.timeIntervalSince(t) < 10 { return nil }
+        guard let a = AnalysisCache.load(e.id) else { noAnalysis[e.id] = .now; return nil }
         // Ignore implausible readings (e.g. a very quiet song measured as mostly "silent").
         let s = (lead: a.leadingSilence < 6 ? a.leadingSilence : 0, trail: a.trailingSilence < 12 ? a.trailingSilence : 0)
         silences[e.id] = s
@@ -80,6 +82,8 @@ final class Player {
     }
 
     @ObservationIgnored private var fileLengths: [Int: Double] = [:]
+    @ObservationIgnored private var noAnalysis: [Int: Date] = [:]
+    @ObservationIgnored private var noBeats: [Int: Date] = [:]
 
     private func fileLength(_ e: LibraryEntry) -> Double? {
         if let known = fileLengths[e.id] { return known }
@@ -455,7 +459,8 @@ final class Player {
     @ObservationIgnored private var beatInfo: [Int: AudioAnalysis] = [:]
     private func beats(_ e: LibraryEntry) -> AudioAnalysis? {
         if let a = beatInfo[e.id] { return a }
-        guard let a = AnalysisCache.load(e.id), a.bpm != nil else { return nil }
+        if let t = noBeats[e.id], Date.now.timeIntervalSince(t) < 10 { return nil }
+        guard let a = AnalysisCache.load(e.id), a.bpm != nil else { noBeats[e.id] = .now; return nil }
         beatInfo[e.id] = a
         return a
     }
@@ -514,7 +519,8 @@ final class Player {
         position = pos
         engine.applyVolumes()
 
-        if let cur = current, let nextID = peekNextID(), let nextEntry = AppModel.shared.library.entry(nextID) {
+        if tickCount % 5 == 0 || end - pos < 2, end - pos < 20,
+           let cur = current, let nextID = peekNextID(), let nextEntry = AppModel.shared.library.entry(nextID) {
             let overlap = crossfade(from: cur, to: nextEntry)
             if let smart = smartTransition(from: cur, to: nextEntry) {
                 let base = item(for: nextEntry)

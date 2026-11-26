@@ -104,7 +104,7 @@ final class StatsStore {
             if let i = records.lastIndex(where: { $0.id == id }) { records[i].seconds += s }
         }
         pending = [:]
-        version += 1
+        // No version bump: cached stats refresh when the next song starts instead of every 15 s.
         scheduleSave()
     }
 
@@ -137,7 +137,13 @@ final class StatsStore {
     private func scheduleSave() {
         debouncer.run { [weak self] in
             guard let self else { return }
-            Store.save(self.records.filter { $0.seconds >= 1 }, "plays.json")
+            // Turning a long history into a file takes a moment, so it happens off the main thread.
+            let snapshot = self.records
+            Task.detached(priority: .utility) {
+                let kept = snapshot.filter { $0.seconds >= 1 }
+                guard let data = try? Store.encoder.encode(kept) else { return }
+                try? data.write(to: Paths.data("plays.json"), options: .atomic)
+            }
         }
     }
 
@@ -154,7 +160,16 @@ final class StatsStore {
 
     private func filtered(_ interval: DateInterval?) -> [PlayRecord] {
         guard let interval else { return records.filter { $0.seconds >= Self.countThreshold } }
-        return records.filter { $0.seconds >= Self.countThreshold && $0.start >= interval.start && $0.start < interval.end }
+        // Plays are kept in time order, so jump straight to the range.
+        var lo = 0, hi = records.count
+        while lo < hi { let m = (lo + hi) / 2; if records[m].start < interval.start { lo = m + 1 } else { hi = m } }
+        var out: [PlayRecord] = []
+        var i = lo
+        while i < records.count, records[i].start < interval.end {
+            if records[i].seconds >= Self.countThreshold { out.append(records[i]) }
+            i += 1
+        }
+        return out
     }
 
     func records(_ range: StatsRange) -> [PlayRecord] { records(in: range.interval) }

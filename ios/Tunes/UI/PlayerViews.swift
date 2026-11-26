@@ -15,7 +15,7 @@ struct MiniPlayer: View {
                 switch app.prefs.data.miniPlayerStyle {
                 case .card: card(song)
                 case .bar: bar(song)
-                case .bubble: MiniBubble(song: song, progress: progress)
+                case .bubble: MiniBubble(song: song)
                 case .minimal: minimal(song)
                 }
             }
@@ -53,10 +53,7 @@ struct MiniPlayer: View {
     }
 
     private func progressLine(height: CGFloat) -> some View {
-        GeometryReader { geo in
-            Capsule().fill(look.accent).frame(width: geo.size.width * progress, height: height)
-        }
-        .frame(height: height)
+        MiniProgressLine(height: height)
     }
 
     /// The floating card (the original look).
@@ -124,9 +121,21 @@ struct MiniPlayer: View {
         .onTapGesture { app.showPlayer = true }
     }
 
-    private var progress: CGFloat {
+}
+
+/// The mini player's thin progress line: its own view, so the rest of the mini player doesn't redraw 30 times a second.
+private struct MiniProgressLine: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+    let height: CGFloat
+
+    var body: some View {
         let d = app.player.duration
-        return d > 0 ? CGFloat(min(1, app.player.elapsed / d)) : 0
+        let progress = d > 0 ? CGFloat(min(1, app.player.elapsed / d)) : 0
+        GeometryReader { geo in
+            Capsule().fill(look.accent).frame(width: geo.size.width * progress, height: height)
+        }
+        .frame(height: height)
     }
 }
 
@@ -155,11 +164,11 @@ struct FullPlayerView: View {
                             .transition(.asymmetric(insertion: .scale(scale: 0.9).combined(with: .opacity), removal: .opacity))
                         Spacer(minLength: 16)
                         if app.prefs.data.playerStyle != .minimal { titleRow(entry.song) }
-                        scrubber.padding(.top, 14)
+                        PlayerScrubber(scrub: $scrub, waveform: waveform).padding(.top, 14)
                         controls.padding(.top, 4)
                         bottomRow.padding(.top, 8)
                         if app.prefs.data.lyricsEnabled && !lyrics.lines.isEmpty && app.prefs.data.playerStyle != .lyrics {
-                            lyricsPeek.padding(.top, 10)
+                            LyricsPeek(lyrics: lyrics, coverColor: coverColor).padding(.top, 10)
                         }
                         Spacer(minLength: 8)
                     }
@@ -321,51 +330,6 @@ struct FullPlayerView: View {
         }
     }
 
-    private var scrubber: some View {
-        let p = app.player
-        let shown = scrub ?? p.elapsed
-        return VStack(spacing: 6) {
-            GeometryReader { geo in
-                let frac = p.duration > 0 ? CGFloat(min(1, max(0, shown / p.duration))) : 0
-                let style = app.prefs.data.progressStyle
-                ZStack(alignment: .leading) {
-                    ProgressBarArt(style: style, fraction: Double(frac), waveform: waveform, playing: p.isPlaying, active: scrub != nil)
-                    if style == .line || style == .thick || style == .squiggle {
-                        Circle().fill(style == .line ? Color.primary : look.accent)
-                            .frame(width: scrub == nil ? 12 : 18, height: scrub == nil ? 12 : 18)
-                            .offset(x: geo.size.width * frac - (scrub == nil ? 6 : 9))
-                    }
-                }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        let f = min(1, max(0, v.location.x / max(geo.size.width, 1)))
-                        withAnimation(.spring(duration: 0.2)) { scrub = Double(f) * p.duration }
-                    }
-                    .onEnded { _ in
-                        if let s = scrub { p.seek(to: p.start + s) }
-                        app.haptic(.selection)
-                        withAnimation(.spring(duration: 0.25)) { scrub = nil }
-                    })
-            }
-            .frame(height: app.prefs.data.progressStyle == .waveform ? 34 : 22)
-            HStack {
-                Text(Fmt.time(shown))
-                Spacer()
-                Text("-" + Fmt.time(max(0, p.duration - shown)))
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
-        }
-        .accessibilityElement()
-        .accessibilityLabel("Position")
-        .accessibilityValue("\(Fmt.time(shown)) of \(Fmt.time(p.duration))")
-        .accessibilityAdjustableAction { dir in
-            p.seek(to: p.position + (dir == .increment ? 10 : -10))
-        }
-    }
-
     private var controls: some View {
         let p = app.player
         return HStack {
@@ -427,31 +391,6 @@ struct FullPlayerView: View {
         .foregroundStyle(.primary)
     }
 
-    private var lyricsPeek: some View {
-        let offset = app.player.current?.lyricsOffset ?? 0
-        let idx = lyrics.index(at: app.player.position + offset) ?? -1
-        let lines = lyrics.lines
-        let first = max(0, idx)
-        return Button { app.sheet = .lyrics } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Lyrics").font(.caption.weight(.bold)).foregroundStyle(.secondary)
-                ForEach(0..<2, id: \.self) { k in
-                    let i = first + k
-                    if i < lines.count {
-                        Text(lines[i].text.isEmpty ? "♪" : lines[i].text)
-                            .font(.headline.weight(.heavy))
-                            .foregroundStyle(k == 0 && idx >= 0 ? .primary : .secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(coverColor.opacity(0.35), in: RoundedRectangle(cornerRadius: look.radius(14)))
-            .animation(.easeInOut(duration: 0.3), value: idx)
-        }
-        .buttonStyle(PressStyle())
-    }
 }
 
 /// Average color of a song's artwork, for the player background.
@@ -932,5 +871,92 @@ private struct LyricsPanel: View {
                 }
             }
         }
+    }
+}
+
+/// The progress bar and times. Its own view, so only it redraws as the song plays, not the whole player.
+private struct PlayerScrubber: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+    @Binding var scrub: Double?
+    let waveform: [Float]
+
+    var body: some View {
+        let p = app.player
+        let shown = scrub ?? p.elapsed
+        return VStack(spacing: 6) {
+            GeometryReader { geo in
+                let frac = p.duration > 0 ? CGFloat(min(1, max(0, shown / p.duration))) : 0
+                let style = app.prefs.data.progressStyle
+                ZStack(alignment: .leading) {
+                    ProgressBarArt(style: style, fraction: Double(frac), waveform: waveform, playing: p.isPlaying, active: scrub != nil)
+                    if style == .line || style == .thick || style == .squiggle {
+                        Circle().fill(style == .line ? Color.primary : look.accent)
+                            .frame(width: scrub == nil ? 12 : 18, height: scrub == nil ? 12 : 18)
+                            .offset(x: geo.size.width * frac - (scrub == nil ? 6 : 9))
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        let f = min(1, max(0, v.location.x / max(geo.size.width, 1)))
+                        withAnimation(.spring(duration: 0.2)) { scrub = Double(f) * p.duration }
+                    }
+                    .onEnded { _ in
+                        if let s = scrub { p.seek(to: p.start + s) }
+                        app.haptic(.selection)
+                        withAnimation(.spring(duration: 0.25)) { scrub = nil }
+                    })
+            }
+            .frame(height: app.prefs.data.progressStyle == .waveform ? 34 : 22)
+            HStack {
+                Text(Fmt.time(shown))
+                Spacer()
+                Text("-" + Fmt.time(max(0, p.duration - shown)))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Position")
+        .accessibilityValue("\(Fmt.time(shown)) of \(Fmt.time(p.duration))")
+        .accessibilityAdjustableAction { dir in
+            p.seek(to: p.position + (dir == .increment ? 10 : -10))
+        }
+    }
+}
+
+/// The two lyric lines under the controls, redrawn on their own as the song plays.
+private struct LyricsPeek: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.look) private var look
+    let lyrics: Lyrics
+    let coverColor: Color
+
+    var body: some View {
+        let offset = app.player.current?.lyricsOffset ?? 0
+        let idx = lyrics.index(at: app.player.position + offset) ?? -1
+        let lines = lyrics.lines
+        let first = max(0, idx)
+        return Button { app.sheet = .lyrics } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Lyrics").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                ForEach(0..<2, id: \.self) { k in
+                    let i = first + k
+                    if i < lines.count {
+                        Text(lines[i].text.isEmpty ? "♪" : lines[i].text)
+                            .font(.headline.weight(.heavy))
+                            .foregroundStyle(k == 0 && idx >= 0 ? .primary : .secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(coverColor.opacity(0.35), in: RoundedRectangle(cornerRadius: look.radius(14)))
+            .animation(.easeInOut(duration: 0.3), value: idx)
+        }
+        .buttonStyle(PressStyle())
     }
 }

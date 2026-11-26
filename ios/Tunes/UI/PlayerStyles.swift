@@ -351,9 +351,12 @@ struct Squiggle: Shape {
 /// The mini player in its "Bubble" style: just the cover in a circle with a progress ring, floating in the corner.
 struct MiniBubble: View {
     let song: Song
-    let progress: CGFloat
     @Environment(AppModel.self) private var app
     @Environment(\.look) private var look
+    private var progress: CGFloat {
+        let d = app.player.duration
+        return d > 0 ? CGFloat(min(1, app.player.elapsed / d)) : 0
+    }
 
     var body: some View {
         HStack {
