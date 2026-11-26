@@ -103,45 +103,28 @@ enum Badges {
     @MainActor
     static func evaluate() -> [BadgeStatus] {
         let app = AppModel.shared
-        let stats = app.stats, lib = app.library
-        let all = stats.records
+        let lib = app.library
         let counters = app.prefs.data.counters
+        // Everything that needs your whole history comes from `facts`, worked out in the background.
+        let f = facts
         let cal = Calendar.current
-
-        var night = 0, early = 0, spotify = 0
-        var artists = Set<Int>(), genres = Set<String>(), decades = Set<Int>()
-        var albumSongs: [Int: Set<Int>] = [:]
-        for r in all {
-            for a in r.allArtists { artists.insert(a.id) }
-            if r.origin == .spotify { spotify += 1 }
-            if let g = r.genre { genres.insert(g) }
-            if let y = r.releaseYear, y > 1900 { decades.insert(y / 10) }
-            if r.seconds >= 30 {
-                let h = cal.component(.hour, from: r.start)
-                if h < 4 { night += 1 } else if h >= 5 && h < 8 { early += 1 }
-            }
-            if let album = lib.entry(r.songID)?.song.album, album.id > 0 {
-                albumSongs[album.id, default: []].insert(r.songID)
-            }
-        }
-        let firstPlay = all.map(\.start).min()
-
+        _ = cal
         func value(_ id: String) -> Int {
             switch id {
-            case "listener": return Int(stats.total(all) / 3600)
-            case "marathon": return Int((stats.biggestDay(all)?.seconds ?? 0) / 60)
-            case "streak": return stats.longestStreak(all).days
-            case "nightOwl": return night
-            case "earlyBird": return early
-            case "explorer": return artists.count
-            case "superfan": return Int((stats.topArtists(all, limit: 1).first?.seconds ?? 0) / 3600)
-            case "onRepeat": return stats.topSongs(all, limit: 1).first?.plays ?? 0
+            case "listener": return f.hours
+            case "marathon": return f.bigDayMinutes
+            case "streak": return f.longestStreak
+            case "nightOwl": return f.night
+            case "earlyBird": return f.early
+            case "explorer": return f.artists
+            case "superfan": return f.topArtistHours
+            case "onRepeat": return f.onRepeat
             case "collector": return lib.entries.count
             case "curator": return app.playlists.manual.count
             case "heartEyes": return lib.liked.count
-            case "albumLover": return albumSongs.values.filter { $0.count >= 5 }.count
-            case "genreHopper": return genres.count
-            case "timeTraveler": return decades.count
+            case "albumLover": return f.albumLover
+            case "genreHopper": return f.genres
+            case "timeTraveler": return f.decades
             case "follower": return lib.followed.count
             case "digger": return lib.entries.filter { $0.id < 0 }.count + (counters["filesImported"] ?? 0)
             case "mover": return counters["spotifySongs"] ?? 0
@@ -151,7 +134,7 @@ enum Badges {
             case "scratcher": return counters["vinylScratches"] ?? 0
             case "stylist": return counters.keys.filter { $0.hasPrefix("theme:") }.count
             case "lyricist": return counters["lyricsOpened"] ?? 0
-            case "veteran": return firstPlay.map { cal.dateComponents([.day], from: $0, to: .now).day ?? 0 } ?? 0
+            case "veteran": return f.veteranDays
             case "puzzler": return app.prefs.data.games.values.map(\.bestStreak).max() ?? 0
             case "wordWizard": return counters["tunedleWins"] ?? 0
             case "perfectPitch": return counters["earwormOneSecond"] ?? 0
@@ -169,7 +152,7 @@ enum Badges {
             default: return 0
             }
         }
-        return all.isEmpty && lib.entries.isEmpty && counters.isEmpty
+        return f.empty && lib.entries.isEmpty && counters.isEmpty
             ? Self.all.map { BadgeStatus(def: $0, value: 0) }
             : Self.all.map { BadgeStatus(def: $0, value: value($0.id)) }
     }
@@ -225,6 +208,117 @@ struct MedalView: View {
         .onAppear {
             guard tier != .none, AppModel.shared.prefs.data.animations else { return }
             withAnimation(.linear(duration: tier == .gold ? 4 : 6).repeatForever(autoreverses: false)) { shine = true }
+        }
+    }
+}
+
+
+// MARK: - History facts (worked out in the background)
+
+/// Numbers from your whole listening history that badges and the Streak theme need. Going through a long
+/// history (like an imported Spotify history) takes a moment, so it happens off the main thread and only when
+/// your history changed; taps and song changes never wait for it.
+struct HistoryFacts {
+    var hours = 0, bigDayMinutes = 0, longestStreak = 0, night = 0, early = 0, artists = 0
+    var topArtistHours = 0, onRepeat = 0, albumLover = 0, genres = 0, decades = 0, veteranDays = 0
+    var streak = StreakInfo()
+    var empty = true
+    var stamp = ""
+
+    nonisolated static func compute(_ recs: [PlayRecord], albumOf: [Int: Int]) -> HistoryFacts {
+        var f = HistoryFacts()
+        guard !recs.isEmpty else { return f }
+        f.empty = false
+        let cal = Calendar.current
+        var total = 0.0
+        var perDay: [Date: Double] = [:]
+        var artists = Set<Int>(), genres = Set<String>(), decades = Set<Int>()
+        var artistSeconds: [Int: Double] = [:]
+        var songPlays: [Int: Int] = [:]
+        var albumSongs: [Int: Set<Int>] = [:]
+        var first = Date.distantFuture
+        for r in recs {
+            total += r.seconds
+            if r.start < first { first = r.start }
+            for a in r.allArtists { artists.insert(a.id) }
+            if let g = r.genre { genres.insert(g) }
+            if let y = r.releaseYear, y > 1900 { decades.insert(y / 10) }
+            artistSeconds[r.artist.id, default: 0] += r.seconds
+            if r.seconds >= 5 { perDay[cal.startOfDay(for: r.start), default: 0] += r.seconds }
+            if r.seconds >= 30 {
+                songPlays[r.songID, default: 0] += 1
+                let h = cal.component(.hour, from: r.start)
+                if h < 4 { f.night += 1 } else if h >= 5 && h < 8 { f.early += 1 }
+            }
+            if let album = albumOf[r.songID] { albumSongs[album, default: []].insert(r.songID) }
+        }
+        f.hours = Int(total / 3600)
+        f.bigDayMinutes = Int((perDay.values.max() ?? 0) / 60)
+        f.artists = artists.count
+        f.genres = genres.count
+        f.decades = decades.count
+        f.topArtistHours = Int((artistSeconds.values.max() ?? 0) / 3600)
+        f.onRepeat = songPlays.values.max() ?? 0
+        f.albumLover = albumSongs.values.filter { $0.count >= 5 }.count
+        f.veteranDays = cal.dateComponents([.day], from: first, to: .now).day ?? 0
+        // Longest run of days with music, and the current streak (for the Streak theme).
+        let days = perDay.keys.sorted()
+        var best = 0, run = 0
+        var prev: Date?
+        for d in days {
+            if let p = prev, cal.dateComponents([.day], from: p, to: d).day == 1 { run += 1 } else { run = 1 }
+            best = max(best, run)
+            prev = d
+        }
+        f.longestStreak = best
+        if let last = days.last {
+            var current = 0
+            var d = last
+            let set = Set(days)
+            while set.contains(d) {
+                current += 1
+                guard let p = cal.date(byAdding: .day, value: -1, to: d) else { break }
+                d = p
+            }
+            let gap = cal.dateComponents([.day], from: last, to: cal.startOfDay(for: .now)).day ?? 0
+            let level: Int = switch current {
+            case ..<3: 0
+            case ..<7: 1
+            case ..<14: 2
+            case ..<30: 3
+            case ..<100: 4
+            default: 5
+            }
+            f.streak = StreakInfo(current: gap <= 1 ? current : 0, level: max(0, level - max(0, gap - 1)))
+        }
+        return f
+    }
+}
+
+extension Badges {
+    @MainActor static var facts = HistoryFacts()
+    @MainActor private static var working = false
+    @MainActor private static var again = false
+
+    /// Refreshes `facts` in the background if your history changed, then calls `done` on the main thread.
+    @MainActor static func refreshFacts(_ done: (() -> Void)? = nil) {
+        let app = AppModel.shared
+        let stamp = "\(app.stats.version)-\(app.stats.records.count)"
+        guard stamp != facts.stamp else { done?(); return }
+        guard !working else { again = true; return }
+        working = true
+        let recs = app.stats.records
+        var albumOf: [Int: Int] = [:]
+        for e in app.library.entries { if let a = e.song.album, a.id > 0 { albumOf[e.id] = a.id } }
+        Task.detached(priority: .utility) {
+            var f = HistoryFacts.compute(recs, albumOf: albumOf)
+            f.stamp = stamp
+            await MainActor.run {
+                facts = f
+                working = false
+                done?()
+                if again { again = false; refreshFacts(done) }
+            }
         }
     }
 }

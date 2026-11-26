@@ -25,7 +25,19 @@ enum SongMatch {
     }
 
     /// Groups of library songs that are the same song, the main version first.
+    private static var cachedGroups: (stamp: String, value: [[LibraryEntry]])?
+    private static var cachedCanonical: (stamp: String, value: [Int: Int])?
+
+    /// Cached until the library changes, since lots of screens ask for this.
     static func groups(_ lib: Library) -> [[LibraryEntry]] {
+        let stamp = "\(lib.version)-\(lib.entries.count)"
+        if let c = cachedGroups, c.stamp == stamp { return c.value }
+        let v = computeGroups(lib)
+        cachedGroups = (stamp, v)
+        return v
+    }
+
+    private static func computeGroups(_ lib: Library) -> [[LibraryEntry]] {
         var byKey: [String: [LibraryEntry]] = [:]
         for e in lib.entries { byKey[key(e.song), default: []].append(e) }
         var out: [[LibraryEntry]] = []
@@ -44,8 +56,11 @@ enum SongMatch {
 
     /// Song ID → the main version's ID, for songs that have another version in the library.
     static func canonical(_ lib: Library) -> [Int: Int] {
+        let stamp = "\(lib.version)-\(lib.entries.count)"
+        if let c = cachedCanonical, c.stamp == stamp { return c.value }
         var map: [Int: Int] = [:]
         for g in groups(lib) { for e in g { map[e.id] = g[0].id } }
+        cachedCanonical = (stamp, map)
         return map
     }
 

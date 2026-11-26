@@ -60,12 +60,22 @@ final class StatsStore {
         if records.count != before { version += 1; scheduleSave() }
     }
 
+    @ObservationIgnored private var mergedUpTo = 0
+    @ObservationIgnored private var mergedSignature = ""
+
     func mergeVersions(_ lib: Library) {
+        let groups = SongMatch.groups(lib)
         let map = SongMatch.canonical(lib)
         var byKey: [String: Int] = [:]
-        for g in SongMatch.groups(lib) { byKey[SongMatch.key(g[0].song)] = g[0].id }
+        for g in groups { byKey[SongMatch.key(g[0].song)] = g[0].id }
+        // Only new plays need checking, unless which songs have two versions changed.
+        let signature = groups.map { $0.map(\.id).map(String.init).joined(separator: ",") }.joined(separator: ";")
+        let from = signature == mergedSignature ? min(mergedUpTo, records.count) : 0
+        mergedSignature = signature
+        mergedUpTo = records.count
+        guard !groups.isEmpty else { return }
         var changed = false
-        for i in records.indices {
+        for i in from..<records.count {
             let r = records[i]
             let target = map[r.songID] ?? (lib.entry(r.songID) == nil ? byKey[SongMatch.key(title: r.title, artist: r.artist.name)] : nil)
             if let t = target, t != r.songID { records[i].songID = t; changed = true }

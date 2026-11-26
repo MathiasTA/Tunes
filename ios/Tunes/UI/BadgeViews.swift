@@ -38,7 +38,7 @@ struct BadgesView: View {
         .navigationTitle("Badges")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selected) { s in BadgeDetail(status: s).presentationDetents([.medium]) }
-        .onAppear { statuses = Badges.evaluate() }
+        .onAppear { statuses = Badges.evaluate(); Badges.refreshFacts { statuses = Badges.evaluate() } }
     }
 
     private func count(_ tier: BadgeTier) -> some View {

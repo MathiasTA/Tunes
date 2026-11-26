@@ -33,7 +33,7 @@ struct EffectLayer: View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: !moving)) { ctx in
             let t = moving ? ctx.date.timeIntervalSinceReferenceDate : 1000
             let pulse = palette.effect == .pulse ? PulseMeter.shared.frame(at: ctx.date, moving: moving) : PulseFrame()
-            Canvas { gc, size in
+            Canvas(rendersAsynchronously: true) { gc, size in
                 EffectPainter.draw(palette, in: &gc, size: size, t: t, pulse: pulse)
             }
         }

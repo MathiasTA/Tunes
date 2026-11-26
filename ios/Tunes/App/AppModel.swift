@@ -91,7 +91,10 @@ final class AppModel {
         playlists.createDailyMixesIfNeeded()
         playlists.syncHomeCharts(prefs.data.homeCharts)
         library.analyzeMissing()
-        stats.removeUnknownImports()
+        if prefs.data.counters["unknownRemoved"] == nil {
+            stats.removeUnknownImports()
+            prefs.data.counters["unknownRemoved"] = 1
+        }
         stats.mergeVersions(library)
         pickSongOfTheDay()
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -161,6 +164,11 @@ final class AppModel {
     func checkBadges(force: Bool = false) {
         guard force || Date.now.timeIntervalSince(lastBadgeCheck) > 2 else { return }
         lastBadgeCheck = .now
+        // The heavy part (your whole history) is worked out in the background first.
+        Badges.refreshFacts { [weak self] in self?.applyBadges() }
+    }
+
+    private func applyBadges() {
         let statuses = Badges.evaluate()
         let first = prefs.data.counters["badgesReady"] == nil
         var earned: [BadgeStatus] = []
@@ -172,7 +180,7 @@ final class AppModel {
             }
         }
         let newThemes = medalThemesJustUnlocked()
-        let s = stats.streakInfo()
+        let s = Badges.facts.streak
         if s != streak { streak = s }
         if first { prefs.data.counters["badgesReady"] = 1; return }
         if let best = earned.max(by: { $0.tier < $1.tier }) {
