@@ -28,8 +28,8 @@ struct StatsView: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     tile("Listened", Fmt.listening(stats.total(recs)), "clock.fill")
                     tile("Plays", "\(stats.plays(recs))", "play.fill")
-                    tile("Artists", "\(Set(recs.flatMap { $0.allArtists.map(\.id) }).count)", "person.2.fill")
-                    tile("Songs", "\(Set(recs.map(\.songID)).count)", "music.note")
+                    tile("Artists", "\(stats.artistCount(recs))", "person.2.fill")
+                    tile("Songs", "\(stats.songCount(recs))", "music.note")
                 }
 
                 if !buckets.isEmpty {

@@ -406,6 +406,15 @@ final class Prefs {
     func colorScheme(for look: Look) -> ColorScheme? { look.palette?.scheme ?? data.theme.scheme }
 }
 
+/// Everything the root of the app needs from your appearance settings.
+struct RootStyle: Equatable {
+    var look: Look
+    var font: AppFont
+    var scheme: ColorScheme?
+    var textSize: TextSize
+    var animations: Bool
+}
+
 /// Colors and shapes derived from appearance settings, available to every view.
 struct Look: Equatable {
     var accent: Color = Color(hex: "#34D399")
@@ -717,7 +726,7 @@ struct GameRecord: Codable, Hashable {
     /// How today's daily ended, for "See your answer".
     var lastHeadline: String?
     var lastDetail: String?
-    /// Every round (daily and practice), for the game's stats.
+    /// Every round (daily and free play), for the game's stats.
     var total: Int?
     var totalWon: Int?
     var dist: [String: Int]?

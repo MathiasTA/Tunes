@@ -107,7 +107,8 @@ final class Player {
     // MARK: Starting playback
 
     /// Plays downloaded songs from a list. Songs that aren't downloaded are skipped.
-    func play(_ songs: [Song], startAt index: Int = 0, context name: String, playlistID: UUID? = nil, shuffled: Bool? = nil) {
+    /// `time`: where in the first song to begin (seconds into the file), e.g. to carry on from a game.
+    func play(_ songs: [Song], startAt index: Int = 0, context name: String, playlistID: UUID? = nil, shuffled: Bool? = nil, at time: Double? = nil) {
         let lib = AppModel.shared.library
         let ids = songs.map(\.id).filter { lib.isDownloaded($0) }
         guard !ids.isEmpty else {
@@ -130,7 +131,11 @@ final class Player {
         }
         currentID = context[contextIndex]
         if let playlistID { AppModel.shared.playlists.markPlayed(playlistID) }
-        load(play: true)
+        if let time, let e = current {
+            load(play: true, from: min(max(playStart(e), time), max(playStart(e), end - 0.5)))
+        } else {
+            load(play: true)
+        }
     }
 
     func playNext(_ song: Song) {

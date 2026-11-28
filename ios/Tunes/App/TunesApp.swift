@@ -11,20 +11,20 @@ struct TunesApp: App {
 
     var body: some Scene {
         WindowGroup {
-            // Re-checked every minute, so Horizon follows the time of day.
-            TimelineView(.everyMinute) { ctx in
-                let look = app.prefs.look(at: ctx.date, cover: app.coverColors)
-                RootView()
-                    .environment(app)
-                    .environment(\.look, look)
-                    .tint(look.accent)
-                    .toggleStyle(TunesToggleStyle())
-                    .appFont(app.prefs.data.font)
-                    .preferredColorScheme(app.prefs.colorScheme(for: look))
-                    .dynamicTypeSize(app.prefs.data.textSize.dynamicType)
-                    .transaction { t in if !app.prefs.data.animations { t.animation = nil } }
-            }
-            .onAppear { app.onLaunch() }
+            // The look is worked out in AppModel and only changes here when it really changes,
+            // so saving a setting or a game move doesn't redraw the whole app.
+            let style = app.rootStyle ?? app.makeRootStyle()
+            let look = style.look
+            RootView()
+                .environment(app)
+                .environment(\.look, look)
+                .tint(look.accent)
+                .toggleStyle(TunesToggleStyle())
+                .appFont(style.font)
+                .preferredColorScheme(style.scheme)
+                .dynamicTypeSize(style.textSize.dynamicType)
+                .transaction { t in if !style.animations { t.animation = nil } }
+                .onAppear { app.trackRootStyle(); app.onLaunch() }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

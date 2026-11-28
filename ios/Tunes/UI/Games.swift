@@ -103,8 +103,7 @@ struct GameData {
         let canon = SongMatch.canonical(app.library)
         let entries = app.library.entries.filter { (canon[$0.id] ?? $0.id) == $0.id }
         songs = entries.map(\.song)
-        var p: [Int: Int] = [:]
-        for r in app.stats.records where r.seconds >= StatsStore.playThreshold { p[r.songID, default: 0] += 1 }
+        let p = app.stats.allPlayCounts()
         plays = p
         top = app.stats.ranking(p)
         liked = Set(entries.filter(\.liked).map(\.id))
@@ -147,10 +146,12 @@ struct GameIO {
     let seed: UInt64
     let moves: [String]
     let readOnly: Bool
-    /// Today's puzzle (false for practice rounds).
+    /// Today's puzzle (false for free play).
     let daily: Bool
     let record: (String) -> Void
     let done: (GameResult) -> Void
+    /// Goes up each time you tap "Keep going" after winning the daily, to carry the run on endlessly.
+    var keepGoing = 0
 }
 
 struct GameResult {
@@ -166,6 +167,36 @@ struct GameResult {
     var bests: [String: Int] = [:]
     /// Where this result lands in the game's distribution (e.g. "3" guesses, "X" for a loss).
     var bucket: String?
+    /// Endless runs: the count shown as big green text ("12 in a row") instead of a row of squares,
+    /// and the counter that keeps your highscore for it.
+    var run: Int?
+    var runLabel = "in a row"
+    var runKey: String?
+    /// Filled in when the result is saved: your highscore, and whether this run just beat it.
+    var highscore = 0
+    var newBest = false
+    /// A daily win that can carry on endlessly ("Keep going").
+    var canKeepGoing = false
+}
+
+/// A lifeline that comes back in endless runs: after using it, it's ready again 5 guesses later.
+struct LifelineCharge {
+    static let rechargeAfter = 5
+    private(set) var usedAt: Int?
+    private(set) var everUsed = false
+
+    func ready(answered: Int, endless: Bool) -> Bool {
+        guard let u = usedAt else { return true }
+        return endless && answered - u >= Self.rechargeAfter
+    }
+    func guessesLeft(answered: Int) -> Int { max(0, Self.rechargeAfter - (answered - (usedAt ?? answered))) }
+    /// "Lifeline ready in N guesses" while it recharges (endless runs only).
+    func note(answered: Int, endless: Bool) -> String? {
+        guard endless, usedAt != nil, !ready(answered: answered, endless: true) else { return nil }
+        let n = guessesLeft(answered: answered)
+        return "Lifeline ready in \(n) guess\(n == 1 ? "" : "es")"
+    }
+    mutating func use(answered: Int) { usedAt = answered; everUsed = true }
 }
 
 // MARK: - Hub
@@ -374,7 +405,7 @@ struct TodaysGamesCard: View {
 
 // MARK: - Game screen
 
-/// The frame around every game: daily or practice rounds, saved progress, results, and your finished daily.
+/// The frame around every game: daily or free play rounds, saved progress, results, and your finished daily.
 struct GameScreen: View {
     let kind: GameKind
     @Environment(AppModel.self) private var app
@@ -386,6 +417,7 @@ struct GameScreen: View {
     @State private var result: GameResult?
     @State private var data: GameData?
     @State private var showStats = false
+    @State private var keepGoing = 0
 
     private var today: String { AppModel.dayKey() }
     private var record: GameRecord { app.prefs.data.games[kind.rawValue] ?? GameRecord() }
@@ -418,7 +450,8 @@ struct GameScreen: View {
             .padding(.top, 8)
             if let result {
                 ResultCard(kind: kind, result: result, daily: daily, streak: record.streak, next: playAnother, close: { dismiss() },
-                           keepListening: { GameAudio.shared.handOff(); dismiss() })
+                           keepListening: { GameAudio.shared.handOff(); dismiss() },
+                           keepGoingAction: result.canKeepGoing ? { continueRun() } : nil)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -443,7 +476,7 @@ struct GameScreen: View {
                 .accessibilityLabel("Close")
             VStack(alignment: .leading, spacing: 1) {
                 Text(kind.title).font(.title3.weight(.heavy))
-                Text(reviewing ? "Your answer" : (daily ? "Today's puzzle" : "Practice round")).font(.caption.weight(.semibold)).opacity(0.7)
+                Text(reviewing ? "Your result" : (daily ? "Today's puzzle" : "Free play")).font(.caption.weight(.semibold)).opacity(0.7)
             }
             Spacer()
             if record.streak > 0 {
@@ -453,19 +486,6 @@ struct GameScreen: View {
                 Image(systemName: "chart.bar.fill").font(.subheadline).frame(width: 32, height: 32).background(.white.opacity(0.14), in: Circle())
             }
             .accessibilityLabel("\(kind.title) stats")
-            Button(daily ? "Practice" : "Daily") {
-                GameAudio.shared.stop()
-                withAnimation {
-                    daily.toggle()
-                    reviewing = false
-                    result = nil
-                    seed = daily ? dailySeed : UInt64.random(in: 1...UInt64.max)
-                    round += 1
-                }
-            }
-            .font(.caption.weight(.bold))
-            .padding(.horizontal, 12).frame(height: 32)
-            .background(.white.opacity(0.14), in: Capsule())
         }
     }
 
@@ -487,12 +507,12 @@ struct GameScreen: View {
             Spacer()
             Image(systemName: record.dailyWon ? "checkmark.seal.fill" : "moon.zzz.fill").font(.system(size: 60)).foregroundStyle(kind.colors[0])
             Text(record.dailyWon ? "You solved today's puzzle" : "You played today's puzzle").font(.title2.weight(.heavy))
-            Text("A new one arrives tomorrow. Want another round now?").opacity(0.75).multilineTextAlignment(.center)
+            Text("A new one arrives tomorrow. Want to keep playing?").opacity(0.75).multilineTextAlignment(.center)
             DailyStreakBanner(open: nil)
-            GameButton(title: "Play another", color: kind.colors[0], action: playAnother).padding(.top, 8)
+            GameButton(title: "Free play", color: kind.colors[0], action: playAnother).padding(.top, 8)
             if !(app.prefs.data.gameProgress[progressKey] ?? []).isEmpty {
                 Button { withAnimation { reviewing = true; round += 1 } } label: {
-                    Text("See your answer").font(.headline).frame(maxWidth: .infinity).frame(height: 52)
+                    Text("See your result").font(.headline).frame(maxWidth: .infinity).frame(height: 52)
                         .background(.white.opacity(0.14), in: Capsule())
                 }
                 .buttonStyle(PressStyle())
@@ -510,7 +530,8 @@ struct GameScreen: View {
                         readOnly: reviewing,
                         daily: daily,
                         record: { m in if saving { app.prefs.data.gameProgress[key, default: []].append(m) } },
-                        done: finish)
+                        done: finish,
+                        keepGoing: keepGoing)
         switch kind {
         case .tunedle: TunedleGame(data: d, io: io)
         case .connections: ConnectionsGame(data: d, io: io)
@@ -525,8 +546,17 @@ struct GameScreen: View {
         }
     }
 
-    private func finish(_ r: GameResult) {
+    private func finish(_ result0: GameResult) {
         guard !reviewing else { return }
+        var r = result0
+        if let key = r.runKey, let run = r.run {
+            let prev = app.prefs.data.counters[key] ?? 0
+            r.newBest = run > prev && run > 0
+            r.highscore = max(prev, run)
+            r.bests[key] = max(r.bests[key] ?? 0, run)
+        }
+        // "Keep going" is only for a daily you just won.
+        if !(daily && !finishedToday && r.won) { r.canKeepGoing = false }
         if r.won { GameFX.win() } else { GameFX.wrong() }
         // Any round within 24 hours of a broken streak saves it.
         if app.rescueAvailable { app.useRescue() }
@@ -563,6 +593,15 @@ struct GameScreen: View {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85).delay(0.6)) { result = r }
     }
 
+    /// Carries the daily you just won on as an endless free-play run, in the same game.
+    private func continueRun() {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            result = nil
+            daily = false
+            keepGoing += 1
+        }
+    }
+
     private func playAnother() {
         GameAudio.shared.stop()
         withAnimation {
@@ -584,6 +623,8 @@ private struct ResultCard: View {
     let next: () -> Void
     let close: () -> Void
     let keepListening: () -> Void
+    var keepGoingAction: (() -> Void)? = nil
+    @State private var share: Image?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -618,22 +659,36 @@ private struct ResultCard: View {
                     Spacer()
                 }
             }
-            if !result.marks.isEmpty {
+            if let run = result.run {
+                // Endless runs: a count instead of a row of squares, however long the run.
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(run) \(result.runLabel)").font(.title2.weight(.heavy)).foregroundStyle(Color(hex: "#22C55E"))
+                    if result.newBest {
+                        Text("New highscore").font(.subheadline.weight(.bold)).foregroundStyle(.orange)
+                    } else {
+                        Text("Highscore: \(result.highscore)").font(.subheadline.weight(.semibold)).opacity(0.7)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if !result.marks.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(result.marks.indices, id: \.self) { i in RoundedRectangle(cornerRadius: 3).fill(result.marks[i]).frame(width: 16, height: 16) }
                     if result.usedLifeline { Image(systemName: "lifepreserver").font(.caption).opacity(0.8) }
                     Spacer()
                 }
             }
+            if let keepGoingAction {
+                GameButton(title: "Keep going", color: kind.colors[0], action: keepGoingAction)
+            }
             HStack(spacing: 10) {
-                if let img = shareImage() {
+                if let img = share {
                     ShareLink(item: img, preview: SharePreview("\(kind.title) on Tunes", image: img)) {
                         Image(systemName: "square.and.arrow.up").font(.headline).frame(width: 50, height: 50)
                             .background(.white.opacity(0.14), in: Circle())
                     }
                     .accessibilityLabel("Share")
                 }
-                GameButton(title: "Next puzzle", color: kind.colors[0], action: next)
+                GameButton(title: daily ? "Free play" : "Play again", color: keepGoingAction == nil ? kind.colors[0] : .white.opacity(0.18), action: next)
                 Button(action: close) {
                     Image(systemName: "xmark").font(.headline).frame(width: 50, height: 50).background(.white.opacity(0.14), in: Circle())
                 }
@@ -645,6 +700,8 @@ private struct ResultCard: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .foregroundStyle(.white)
+        // Drawn once, not every time the card redraws.
+        .task(id: "\(result.headline)|\(result.detail)|\(result.run ?? -1)|\(result.marks.count)") { share = shareImage() }
     }
 
     @MainActor
@@ -652,7 +709,9 @@ private struct ResultCard: View {
         let card = VStack(alignment: .leading, spacing: 10) {
             Label(kind.title, systemImage: kind.icon).font(.system(size: 26, weight: .heavy))
             Text(result.headline).font(.system(size: 20, weight: .bold))
-            if !result.marks.isEmpty {
+            if let run = result.run {
+                Text("\(run) \(result.runLabel)").font(.system(size: 30, weight: .heavy))
+            } else if !result.marks.isEmpty {
                 HStack(spacing: 5) {
                     ForEach(result.marks.indices, id: \.self) { i in RoundedRectangle(cornerRadius: 4).fill(result.marks[i]).frame(width: 26, height: 26) }
                 }
@@ -692,8 +751,26 @@ private struct LifelineButton: View {
     let title: String
     let icon: String
     let used: Bool
+    var note: String? = nil
     let action: () -> Void
+    @State private var glow = false
     var body: some View {
+        VStack(spacing: 4) {
+            button
+            if let note { Text(note).font(.caption2.weight(.semibold)).opacity(0.65).contentTransition(.numericText()) }
+        }
+        .animation(.easeInOut(duration: 0.3), value: note)
+        .onChange(of: note) { was, now in
+            // Back again after recharging: a soft glow and a light tap sound.
+            if was != nil && now == nil {
+                GameFX.tap()
+                withAnimation(.easeOut(duration: 0.35)) { glow = true }
+                withAnimation(.easeIn(duration: 0.9).delay(0.4)) { glow = false }
+            }
+        }
+    }
+
+    private var button: some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 ZStack {
@@ -704,6 +781,8 @@ private struct LifelineButton: View {
                     }
                 }
                 .frame(width: 40, height: 40)
+                .shadow(color: Color(hex: "#FBBF24").opacity(glow ? 0.9 : 0), radius: glow ? 14 : 0)
+                .scaleEffect(glow ? 1.12 : 1)
                 Text(title).font(.caption.weight(.bold))
             }
             .opacity(used ? 0.6 : 1)
@@ -1511,8 +1590,9 @@ private struct HigherLowerGame: View {
     @State private var lastRight: Bool?
     @State private var over = false
     @AppStorage("higherLowerHowTo") private var seenHowTo = false
-    /// Practice only: keep going until the first wrong answer.
-    @State private var endless = false
+    /// Free play (and a daily you chose to keep going) runs until the first wrong answer.
+    @State private var continued = false
+    private var endless: Bool { !io.daily || continued }
     private let goal = 10
     private var best: Int { AppModel.shared.prefs.data.counters["higherLowerBest"] ?? 0 }
 
@@ -1526,14 +1606,8 @@ private struct HigherLowerGame: View {
                             .font(.caption).opacity(0.8).multilineTextAlignment(.center)
                             .padding(10).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                     }
-                    if !io.daily && !io.readOnly && score == 0 && !revealed {
-                        Picker("Mode", selection: Binding(get: { endless }, set: { endless = $0; i = 0; setup() })) {
-                            Text("10 songs").tag(false)
-                            Text("Endless").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    Text(endless ? "Run \(score) · Best \(max(best, score))" : "Score \(score) / \(goal)").font(.headline.monospacedDigit())
+                    Text(endless ? "\(score) in a row · Highscore \(max(best, score))" : "Score \(score) / \(goal)").font(.headline.monospacedDigit())
+                        .contentTransition(.numericText())
                     known(a)
                     mystery(b)
                 }
@@ -1542,6 +1616,24 @@ private struct HigherLowerGame: View {
             }
         }
         .onAppear(perform: setup)
+        .onChange(of: io.keepGoing) { _, _ in keepGoing() }
+    }
+
+    /// After winning the daily: the same run carries on, endlessly.
+    private func keepGoing() {
+        guard over, lastRight == true else { return }
+        continued = true
+        var rng = SeededRNG(seed: UInt64.random(in: 1...UInt64.max))
+        deck += more(&rng, limit: 400)
+        guard deck.count > i + 2 else { return }
+        over = false
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            i += 1
+            revealed = false
+            shownCount = 0
+            lastRight = nil
+        }
+        playMystery()
     }
 
     private func known(_ s: Song) -> some View {
@@ -1589,7 +1681,7 @@ private struct HigherLowerGame: View {
     private func setup() {
         var rng = SeededRNG(seed: io.seed)
         deck = []
-        deck = more(&rng, limit: endless ? 400 : goal + 1)
+        deck = more(&rng, limit: io.daily ? goal + 1 : 400)
         guard deck.count >= 2 else { deck = []; return }
         for m in io.moves { apply(m, live: false) }
         if !over && !io.readOnly { playMystery() }
@@ -1646,10 +1738,15 @@ private struct HigherLowerGame: View {
                 let won = endless ? score >= 5 : score >= min(goal, deck.count - 1) / 2
                 GameAudio.shared.fadeOut(2)
                 let run = score
-                io.done(GameResult(won: won, headline: "\(score) in a row", detail: right ? "You went the distance." : "It had \(b) plays.",
-                                   marks: (0..<min(score, 20)).map { _ in Color(hex: "#22C55E") } + (right ? [] : [Color(white: 0.3)]),
+                var r = GameResult(won: won, headline: endless ? (right ? "Still going" : "Run over") : "\(score) in a row",
+                                   detail: right ? "You went the distance." : "It had \(b) plays.",
+                                   marks: (0..<min(score, 10)).map { _ in Color(hex: "#22C55E") } + (right ? [] : [Color(white: 0.3)]),
                                    bests: ["higherLowerBest": score],
-                                   bucket: run >= 20 ? "20+" : (run >= 10 ? "10–19" : (run >= 6 ? "6–9" : (run >= 3 ? "3–5" : "0–2")))))
+                                   bucket: run >= 20 ? "20+" : (run >= 10 ? "10–19" : (run >= 6 ? "6–9" : (run >= 3 ? "3–5" : "0–2"))))
+                if endless { r.run = run; r.runKey = "higherLowerBest" }
+                // A full daily run can keep going.
+                r.canKeepGoing = !endless && right
+                io.done(r)
             } else {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                     i += 1
@@ -1714,7 +1811,6 @@ private struct CoverStoryGame: View {
                     VStack(spacing: 8) {
                         ForEach(choices) { c in choiceRow(c, answer: answer) }
                     }
-                    LifelineButton(title: "50:50", icon: "circle.lefthalf.filled", used: lifeline || over || io.readOnly) { act("L") }
                 }
             } else {
                 NotEnough(text: "Cover Story needs songs with a few different covers.")
@@ -1847,28 +1943,59 @@ private struct LyricGame: View {
     @State private var audienceFor: Int?
     @State private var votes: [String: Int] = [:]
     @State private var over = false
+    /// The lifeline: once a daily; in endless runs it comes back 5 guesses after using it.
+    @State private var charge = LifelineCharge()
+    /// Free play (and a daily you chose to keep going) runs until the first wrong answer.
+    @State private var continued = false
+    @State private var inRow = 0
+    @State private var fetching = false
+    @State private var rng = SeededRNG(seed: 1)
+    private var endless: Bool { !io.daily || continued }
+    private let rounds = 3
+    private var best: Int { AppModel.shared.prefs.data.counters["lyricRunBest"] ?? 0 }
 
     var body: some View {
         SwiftUI.Group {
             if loading {
-                VStack(spacing: 12) {
-                    Spacer()
-                    ProgressView().tint(.white).scaleEffect(1.4)
-                    Text("Finding lyrics from your songs…").opacity(0.8)
-                    Spacer()
-                }
-            } else if questions.count == 3 {
-                questionView(questions[min(index, 2)])
+                loadingView("Finding lyrics from your songs…")
+            } else if questions.count >= (endless ? 1 : rounds), index < questions.count {
+                questionView(questions[index])
+            } else if endless && fetching {
+                loadingView("Finding more lyrics…")
             } else {
                 NotEnough(text: "Couldn't find lyrics for your songs right now. Connect to the internet and try again, or open the lyrics on a few songs.")
             }
         }
         .task { await setup() }
+        .onChange(of: io.keepGoing) { _, _ in keepGoing() }
+    }
+
+    private func loadingView(_ text: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            ProgressView().tint(.white).scaleEffect(1.4)
+            Text(text).opacity(0.8)
+            Spacer()
+        }
+    }
+
+    /// After winning the daily: the same run carries on, endlessly.
+    private func keepGoing() {
+        guard over else { return }
+        continued = true
+        over = false
+        GameAudio.shared.fadeOut(0.8)
+        Task {
+            if index + 1 >= questions.count { await loadMore() }
+            guard index + 1 < questions.count else { return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index += 1 }
+        }
     }
 
     private func questionView(_ q: Question) -> some View {
         VStack(spacing: 14) {
-            Text("Line \(q.id + 1) of 3").font(.subheadline.weight(.semibold)).opacity(0.7)
+            Text(endless ? "\(inRow) in a row · Highscore \(max(best, inRow))" : "Line \(q.id + 1) of \(rounds)")
+                .font(.subheadline.weight(.semibold)).opacity(0.7).contentTransition(.numericText())
             HStack(spacing: 12) {
                 q.song.artwork(48).clipShape(RoundedRectangle(cornerRadius: 10))
                 VStack(alignment: .leading) {
@@ -1900,7 +2027,9 @@ private struct LyricGame: View {
                     Label("Hear it again", systemImage: "speaker.wave.2.fill").font(.subheadline.weight(.bold))
                 }
             } else {
-                LifelineButton(title: "Ask the Audience", icon: "person.3.fill", used: audienceFor != nil || over || io.readOnly || picked[q.id] != nil) {
+                LifelineButton(title: "Ask the Audience", icon: "person.3.fill",
+                               used: !charge.ready(answered: picked.count, endless: endless) || audienceFor == q.id || over || io.readOnly || picked[q.id] != nil,
+                               note: charge.note(answered: picked.count, endless: endless)) {
                     act("L:\(q.id)")
                 }
             }
@@ -1955,10 +2084,49 @@ private struct LyricGame: View {
         return out
     }
 
+    /// Endless runs: a few more questions from songs not used yet.
+    @MainActor
+    private func loadMore() async {
+        guard !fetching else { return }
+        fetching = true
+        defer { fetching = false }
+        let used = Set(questions.map(\.song.id))
+        var r = rng
+        let candidates = data.favorites(&r, count: 150).filter { !used.contains($0.id) }
+        var out: [Question] = []
+        var fetched = 0
+        for pass in 0..<2 where out.count < 4 {
+            for s in candidates where out.count < 4 {
+                if out.contains(where: { $0.song.id == s.id }) { continue }
+                var lyr = LyricsService.cached(s.id)
+                if lyr == nil && pass == 1 && fetched < 6 && !AppModel.shared.prefs.data.offline {
+                    fetched += 1
+                    lyr = await LyricsService.fetch(s)
+                }
+                guard let l = lyr, !l.instrumental, l.lines.count >= 4 else { continue }
+                out += Self.makeQuestions(l, song: s, max: 1, rng: &r)
+            }
+        }
+        // Used every song with lyrics: allow repeats, but not the same line.
+        if out.isEmpty {
+            for q in questions.shuffled(using: &r) where out.count < 3 {
+                if let l = LyricsService.cached(q.song.id) {
+                    out += Self.makeQuestions(l, song: q.song, max: 1, rng: &r).filter { n in !questions.contains { $0.line == n.line } }
+                }
+            }
+        }
+        rng = r
+        let start = questions.count
+        questions += out.enumerated().map { i, q in
+            Question(id: start + i, song: q.song, before: q.before, line: q.line, answer: q.answer, choices: q.choices, time: q.time, end: q.end)
+        }
+    }
+
     @MainActor
     private func setup() async {
         guard questions.isEmpty else { return }
         var rng = SeededRNG(seed: io.seed)
+        self.rng = SeededRNG(seed: io.seed &+ 99)
         let candidates = data.favorites(&rng, count: 120)
         var out: [Question] = []
         var fetched = 0
@@ -2022,12 +2190,13 @@ private struct LyricGame: View {
     }
 
     private func apply(_ m: String, live: Bool) {
-        guard !over, questions.count == 3 else { return }
+        guard !over, questions.count >= (endless ? 1 : rounds) else { return }
         let parts: [String] = m.split(separator: Character(":"), maxSplits: 2).map { String($0) }
         guard parts.count >= 2, let qid = Int(parts[1]), questions.indices.contains(qid) else { return }
         let q = questions[qid]
         if parts[0] == "L" {
-            guard audienceFor == nil else { return }
+            guard charge.ready(answered: picked.count, endless: endless), audienceFor != qid else { return }
+            charge.use(answered: picked.count)
             votes = audienceVotes(q)
             withAnimation(live ? .spring : nil) { audienceFor = qid }
             return
@@ -2036,15 +2205,16 @@ private struct LyricGame: View {
         let c = parts[2]
         let right = c == q.answer
         withAnimation(live ? .spring(response: 0.3) : nil) { picked[qid] = c }
-        if right { score += 1 }
+        if right { score += 1; inRow += 1 } else { inRow = 0 }
         marks.append(right ? Color(hex: "#22C55E") : Color(white: 0.3))
         if live { if right { GameFX.right() } else { GameFX.wrong() } }
-        let last = qid >= 2
+        let last = endless ? !right : qid >= rounds - 1
         if last { over = true }
         guard live else {
             if !last { index = qid + 1 }
             return
         }
+        if endless && !last && qid + 3 >= questions.count { Task { await loadMore() } }
         let wait = LyricMoment.hear(q.song, time: q.time, end: q.end, last: last)
         Task {
             try? await Task.sleep(for: .seconds(wait))
@@ -2052,13 +2222,34 @@ private struct LyricGame: View {
                 GameAudio.shared.fadeOut(0.8)
                 try? await Task.sleep(for: .seconds(0.8))
             }
-            if last {
+            if last && endless {
+                // The run ends on the first wrong answer; the run is the right answers just before it.
+                let streak = marks.dropLast().reversed().prefix { $0 == Color(hex: "#22C55E") }.count
+                var r = GameResult(won: streak >= 5, headline: "Run over", detail: "It was “\(q.answer)”.",
+                                   marks: [], usedLifeline: charge.everUsed, bucket: nil)
+                r.run = streak
+                r.runKey = "lyricRunBest"
+                io.done(r)
+            } else if last {
                 // A line answered with the audience's help doesn't count as word perfect.
-                let perfect = score == 3 && audienceFor == nil
-                io.done(GameResult(won: score >= 2, headline: "\(score) of 3",
+                let perfect = score == rounds && !charge.everUsed
+                var r = GameResult(won: score >= 2, headline: "\(score) of \(rounds)",
                                    detail: perfect ? "Word perfect." : (score >= 2 ? "You know the words." : "Time to sing along more."),
-                                   marks: marks, usedLifeline: audienceFor != nil, counts: perfect ? ["lyricPerfect"] : [], bucket: "\(score)/3"))
+                                   marks: marks, usedLifeline: charge.everUsed, counts: perfect ? ["lyricPerfect"] : [], bucket: "\(score)/\(rounds)")
+                r.canKeepGoing = score >= 2
+                io.done(r)
             } else {
+                if qid + 1 >= questions.count { await loadMore() }
+                guard qid + 1 < questions.count else {
+                    // Out of lyrics: the run ends here.
+                    over = true
+                    var r = GameResult(won: inRow >= 5, headline: "Out of lyrics", detail: "That's every line Tunes could find for now.",
+                                       usedLifeline: charge.everUsed)
+                    r.run = inRow
+                    r.runKey = "lyricRunBest"
+                    io.done(r)
+                    return
+                }
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index = qid + 1 }
             }
         }
@@ -2445,8 +2636,8 @@ struct DailyStreakBanner: View {
 /// Songs from your library with lyrics: saved ones first, then a few fetched online.
 @MainActor
 private enum LyricSource {
-    static func songs(_ data: GameData, rng: inout SeededRNG, need: Int) async -> [(Song, Lyrics)] {
-        let candidates = data.favorites(&rng, count: 150)
+    static func songs(_ data: GameData, rng: inout SeededRNG, need: Int, skip: Set<Int> = []) async -> [(Song, Lyrics)] {
+        let candidates = data.favorites(&rng, count: 150).filter { !skip.contains($0.id) }
         var out: [(Song, Lyrics)] = []
         var fetched = 0
         for pass in 0..<2 where out.count < need {
@@ -2487,29 +2678,59 @@ private struct LyricLineGame: View {
     @State private var marks: [Color] = []
     @State private var loading = true
     @State private var over = false
+    /// The 50:50: once a daily; in endless runs it comes back 5 guesses after using it.
+    @State private var charge = LifelineCharge()
+    /// Free play (and a daily you chose to keep going) runs until the first wrong answer.
+    @State private var continued = false
+    @State private var inRow = 0
+    @State private var fetching = false
+    @State private var rng = SeededRNG(seed: 1)
+    private var endless: Bool { !io.daily || continued }
     private let rounds = 5
+    private var best: Int { AppModel.shared.prefs.data.counters["lyricLineRunBest"] ?? 0 }
 
     var body: some View {
         SwiftUI.Group {
             if loading {
-                VStack(spacing: 12) {
-                    Spacer()
-                    ProgressView().tint(.white).scaleEffect(1.4)
-                    Text("Finding lyrics from your songs…").opacity(0.8)
-                    Spacer()
-                }
-            } else if questions.count == rounds {
-                question(questions[min(index, rounds - 1)])
+                loadingView("Finding lyrics from your songs…")
+            } else if questions.count >= (endless ? 1 : rounds), index < questions.count {
+                question(questions[index])
+            } else if endless && fetching {
+                loadingView("Finding more lyrics…")
             } else {
                 NotEnough(text: "Couldn't find enough lyrics for your songs right now. Connect to the internet and try again.")
             }
         }
         .task { await setup() }
+        .onChange(of: io.keepGoing) { _, _ in keepGoing() }
+    }
+
+    private func loadingView(_ text: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            ProgressView().tint(.white).scaleEffect(1.4)
+            Text(text).opacity(0.8)
+            Spacer()
+        }
+    }
+
+    /// After winning the daily: the same run carries on, endlessly.
+    private func keepGoing() {
+        guard over else { return }
+        continued = true
+        over = false
+        GameAudio.shared.fadeOut(0.8)
+        Task {
+            if index + 1 >= questions.count { await loadMore() }
+            guard index + 1 < questions.count else { return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index += 1 }
+        }
     }
 
     private func question(_ q: Question) -> some View {
         VStack(spacing: 14) {
-            Text("Line \(q.id + 1) of \(rounds) · \(score) right").font(.subheadline.weight(.semibold)).opacity(0.7)
+            Text(endless ? "\(inRow) in a row · Highscore \(max(best, inRow))" : "Line \(q.id + 1) of \(rounds) · \(score) right")
+                .font(.subheadline.weight(.semibold)).opacity(0.7).contentTransition(.numericText())
             VStack(alignment: .leading, spacing: 8) {
                 if let b = q.before { Text(b).font(.body).opacity(0.45) }
                 Text("“\(q.line)”").font(.title3.weight(.bold))
@@ -2526,7 +2747,9 @@ private struct LyricLineGame: View {
                     Label("Hear it again", systemImage: "speaker.wave.2.fill").font(.subheadline.weight(.bold))
                 }
             } else {
-                LifelineButton(title: "50:50", icon: "circle.lefthalf.filled", used: !removed.isEmpty || over || io.readOnly || picked[q.id] != nil) {
+                LifelineButton(title: "50:50", icon: "circle.lefthalf.filled",
+                               used: !charge.ready(answered: picked.count, endless: endless) || removed[q.id] != nil || over || io.readOnly || picked[q.id] != nil,
+                               note: charge.note(answered: picked.count, endless: endless)) {
                     act("L:\(q.id)")
                 }
             }
@@ -2556,29 +2779,50 @@ private struct LyricLineGame: View {
         .disabled(gone || p != nil || over || io.readOnly)
     }
 
-    @MainActor
-    private func setup() async {
-        guard questions.isEmpty else { return }
-        var rng = SeededRNG(seed: io.seed)
-        let found = await LyricSource.songs(data, rng: &rng, need: rounds)
+    private static func makeQuestions(_ found: [(Song, Lyrics)], data: GameData, startID: Int, avoid: Set<String>,
+                                      rng: inout SeededRNG) -> [Question] {
         var out: [Question] = []
         for (s, l) in found {
             let kept = l.lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
             let lines = kept.map { $0.text.trimmingCharacters(in: .whitespaces) }
-            let good = lines.indices.filter { lines[$0].split(separator: " ").count >= 4 && lines[$0].count <= 80 }
+            let good = lines.indices.filter { lines[$0].split(separator: " ").count >= 4 && lines[$0].count <= 80 && !avoid.contains(lines[$0]) }
             guard let li = good.randomElement(using: &rng) else { continue }
             var others: [Song] = []
             for o in data.songs.shuffled(using: &rng) where others.count < 3 {
                 if o.id != s.id && o.title != s.title && !others.contains(where: { $0.id == o.id }) { others.append(o) }
             }
             guard others.count == 3 else { continue }
-            out.append(Question(id: out.count, song: s, before: li > 0 ? lines[li - 1] : nil, line: lines[li],
+            out.append(Question(id: startID + out.count, song: s, before: li > 0 ? lines[li - 1] : nil, line: lines[li],
                                 choices: ([s] + others).shuffled(using: &rng),
                                 time: kept[li].time, end: li + 1 < kept.count ? kept[li + 1].time : nil))
         }
-        questions = Array(out.prefix(rounds))
+        return out
+    }
+
+    @MainActor
+    private func setup() async {
+        guard questions.isEmpty else { return }
+        var rng = SeededRNG(seed: io.seed)
+        self.rng = SeededRNG(seed: io.seed &+ 77)
+        let found = await LyricSource.songs(data, rng: &rng, need: rounds)
+        questions = Array(Self.makeQuestions(found, data: data, startID: 0, avoid: [], rng: &rng).prefix(rounds))
         loading = false
         for m in io.moves { apply(m, live: false) }
+    }
+
+    /// Endless runs: a few more lines, from songs not used yet when possible.
+    @MainActor
+    private func loadMore() async {
+        guard !fetching else { return }
+        fetching = true
+        defer { fetching = false }
+        var r = rng
+        let used = Set(questions.map(\.song.id))
+        var found = await LyricSource.songs(data, rng: &r, need: 4, skip: used)
+        if found.isEmpty { found = await LyricSource.songs(data, rng: &r, need: 3) }
+        rng = r
+        questions += Self.makeQuestions(found, data: data, startID: questions.count, avoid: Set(questions.map(\.line)), rng: &r)
+        rng = r
     }
 
     private func act(_ m: String) {
@@ -2587,12 +2831,13 @@ private struct LyricLineGame: View {
     }
 
     private func apply(_ m: String, live: Bool) {
-        guard !over, questions.count == rounds else { return }
+        guard !over, questions.count >= (endless ? 1 : rounds) else { return }
         let parts: [String] = m.split(separator: Character(":")).map { String($0) }
         guard parts.count >= 2, let qid = Int(parts[1]), questions.indices.contains(qid) else { return }
         let q = questions[qid]
         if parts[0] == "L" {
-            guard removed.isEmpty else { return }
+            guard charge.ready(answered: picked.count, endless: endless), removed[qid] == nil else { return }
+            charge.use(answered: picked.count)
             var rng = SeededRNG(seed: io.seed &+ UInt64(qid) &+ 17)
             let wrong = q.choices.filter { $0.id != q.song.id }.shuffled(using: &rng).prefix(2).map(\.id)
             withAnimation(live ? .easeInOut(duration: 0.5) : nil) { removed[qid] = Set(wrong) }
@@ -2601,15 +2846,16 @@ private struct LyricLineGame: View {
         guard parts[0] == "A", parts.count == 3, let id = Int(parts[2]), picked[qid] == nil else { return }
         let right = id == q.song.id
         withAnimation(live ? .spring(response: 0.3) : nil) { picked[qid] = id }
-        if right { score += 1 }
+        if right { score += 1; inRow += 1 } else { inRow = 0 }
         marks.append(right ? Color(hex: "#22C55E") : Color(white: 0.3))
         if live { if right { GameFX.right() } else { GameFX.wrong() } }
-        let last = qid >= rounds - 1
+        let last = endless ? !right : qid >= rounds - 1
         if last { over = true }
         guard live else {
             if !last { index = qid + 1 }
             return
         }
+        if endless && !last && qid + 3 >= questions.count { Task { await loadMore() } }
         let wait = LyricMoment.hear(q.song, time: q.time, end: q.end, last: last)
         Task {
             try? await Task.sleep(for: .seconds(wait))
@@ -2617,13 +2863,32 @@ private struct LyricLineGame: View {
                 GameAudio.shared.fadeOut(0.8)
                 try? await Task.sleep(for: .seconds(0.8))
             }
-            if last {
-                let perfect = score == rounds && removed.isEmpty
-                io.done(GameResult(won: score >= 3, headline: "\(score) of \(rounds)",
+            if last && endless {
+                let streak = marks.dropLast().reversed().prefix { $0 == Color(hex: "#22C55E") }.count
+                var r = GameResult(won: streak >= 5, headline: "Run over", detail: "It was from \(q.song.title).",
+                                   usedLifeline: charge.everUsed)
+                r.run = streak
+                r.runKey = "lyricLineRunBest"
+                io.done(r)
+            } else if last {
+                let perfect = score == rounds && !charge.everUsed
+                var r = GameResult(won: score >= 3, headline: "\(score) of \(rounds)",
                                    detail: perfect ? "You know every word." : (score >= 3 ? "You know your lyrics." : "Time to read along more."),
-                                   marks: marks, usedLifeline: !removed.isEmpty, counts: perfect ? ["lineReaderPerfect"] : [],
-                                   bucket: score <= 1 ? "0–1" : "\(score)/5"))
+                                   marks: marks, usedLifeline: charge.everUsed, counts: perfect ? ["lineReaderPerfect"] : [],
+                                   bucket: score <= 1 ? "0–1" : "\(score)/5")
+                r.canKeepGoing = score >= 3
+                io.done(r)
             } else {
+                if qid + 1 >= questions.count { await loadMore() }
+                guard qid + 1 < questions.count else {
+                    over = true
+                    var r = GameResult(won: inRow >= 5, headline: "Out of lyrics", detail: "That's every line Tunes could find for now.",
+                                       usedLifeline: charge.everUsed)
+                    r.run = inRow
+                    r.runKey = "lyricLineRunBest"
+                    io.done(r)
+                    return
+                }
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index = qid + 1 }
             }
         }
@@ -2809,11 +3074,14 @@ private struct BlitzGame: View {
         let won = io.daily ? right >= target : right >= target
         let headline: String
         if io.daily { headline = right >= target ? "\(target) in \(Int(elapsed.rounded()))s!" : "\(right) of \(target)" }
-        else { headline = right > best ? "New highscore: \(right)!" : "\(right) right" }
-        let detail = reason ?? (io.daily ? (won ? "Lightning fast." : "So close. Try a practice blitz.") : "Your best is \(max(best, right)).")
-        io.done(GameResult(won: won, headline: headline, detail: detail,
-                           marks: Array(repeating: Color(hex: "#22C55E"), count: min(right, 20)), bests: ["blitzBest": right],
-                           bucket: right >= 20 ? "20+" : (right >= 15 ? "15–19" : (right >= 10 ? "10–14" : (right >= 5 ? "5–9" : "0–4")))))
+        else { headline = "Time's up" }
+        let detail = reason ?? (io.daily ? (won ? "Lightning fast." : "So close. Try a free play blitz.") : "One minute, as many as you can.")
+        var r = GameResult(won: won, headline: headline, detail: detail,
+                           marks: Array(repeating: Color(hex: "#22C55E"), count: min(right, 10)), bests: ["blitzBest": right],
+                           bucket: right >= 20 ? "20+" : (right >= 15 ? "15–19" : (right >= 10 ? "10–14" : (right >= 5 ? "5–9" : "0–4"))))
+        // Free play: the count as text (it can get long), with your highscore.
+        if !io.daily { r.run = right; r.runLabel = "right"; r.runKey = "blitzBest" }
+        io.done(r)
     }
 }
 
@@ -2902,11 +3170,8 @@ final class GameAudio {
         let t = player?.currentTime ?? 0
         stop()
         let app = AppModel.shared
-        app.player.play([s], context: "Games")
-        Task {
-            try? await Task.sleep(for: .milliseconds(450))
-            app.player.seek(to: t)
-        }
+        // Start right where the game was, not from the top.
+        app.player.play([s], context: "Games", at: t)
     }
 }
 

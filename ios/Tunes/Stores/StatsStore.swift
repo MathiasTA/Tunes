@@ -174,16 +174,72 @@ final class StatsStore {
 
     func records(_ range: StatsRange) -> [PlayRecord] { records(in: range.interval) }
 
-    func total(_ recs: [PlayRecord]) -> Double { recs.reduce(0) { $0 + $1.seconds } }
-    func plays(_ recs: [PlayRecord]) -> Int { recs.filter { $0.seconds >= Self.playThreshold }.count }
+    func total(_ recs: [PlayRecord]) -> Double { memo("total-\(Self.sig(recs))") { recs.reduce(0) { $0 + $1.seconds } } }
+    func plays(_ recs: [PlayRecord]) -> Int { memo("plays-\(Self.sig(recs))") { recs.filter { $0.seconds >= Self.playThreshold }.count } }
+    func artistCount(_ recs: [PlayRecord]) -> Int { memo("artistCount-\(Self.sig(recs))") { Set(recs.flatMap { $0.allArtists.map(\.id) }).count } }
+    func songCount(_ recs: [PlayRecord]) -> Int { memo("songCount-\(Self.sig(recs))") { Set(recs.map(\.songID)).count } }
 
-    func seconds(forArtist id: Int) -> Double {
-        records.reduce(0) { $1.allArtists.contains(where: { $0.id == id }) ? $0 + $1.seconds : $0 }
+    /// A short fingerprint of a list of plays, for remembering results worked out from it.
+    nonisolated static func sig(_ recs: [PlayRecord]) -> String {
+        "\(recs.count)-\(recs.first?.id.uuidString ?? "")-\(recs.last?.id.uuidString ?? "")"
     }
 
-    func seconds(forSong id: Int) -> Double { records.reduce(0) { $1.songID == id ? $0 + $1.seconds : $0 } }
-    func playCount(forSong id: Int) -> Int { records.filter { $0.songID == id && $0.seconds >= Self.playThreshold }.count }
-    func lastPlayed(_ songID: Int) -> Date? { records.last { $0.songID == songID }?.start }
+    /// Per-song and per-artist totals, worked out in one go and remembered (lists ask for these per row).
+    struct SongTotals { var seconds = 0.0; var plays = 0; var last: Date? }
+    private var songTotals: [Int: SongTotals] {
+        memo("songTotals") {
+            var out: [Int: SongTotals] = [:]
+            for r in records {
+                var t = out[r.songID] ?? SongTotals()
+                t.seconds += r.seconds
+                if r.seconds >= Self.playThreshold { t.plays += 1 }
+                t.last = r.start
+                out[r.songID] = t
+            }
+            return out
+        }
+    }
+    private var artistSeconds: [Int: Double] {
+        memo("artistSeconds") {
+            var out: [Int: Double] = [:]
+            for r in records { for a in Set(r.allArtists.map(\.id)) { out[a, default: 0] += r.seconds } }
+            return out
+        }
+    }
+
+    /// Counted plays for every song, remembered.
+    func allPlayCounts() -> [Int: Int] {
+        memo("allPlayCounts") { songTotals.compactMapValues { $0.plays > 0 ? $0.plays : nil } }
+    }
+
+    func seconds(forArtist id: Int) -> Double { artistSeconds[id] ?? 0 }
+    func seconds(forSong id: Int) -> Double { songTotals[id]?.seconds ?? 0 }
+    func playCount(forSong id: Int) -> Int { songTotals[id]?.plays ?? 0 }
+    func lastPlayed(_ songID: Int) -> Date? { songTotals[songID]?.last }
+
+    func topArtists(_ recs: [PlayRecord], limit: Int = 10) -> [ArtistStat] {
+        memo("topArtists-\(Self.sig(recs))-\(limit)") { topArtistsRaw(recs, limit: limit) }
+    }
+
+    func topSongs(_ recs: [PlayRecord], limit: Int = 10) -> [SongStat] {
+        memo("topSongs-\(Self.sig(recs))-\(limit)") { topSongsRaw(recs, limit: limit) }
+    }
+
+    func topGenres(_ recs: [PlayRecord], limit: Int = 5) -> [(name: String, share: Double)] {
+        memo("topGenres-\(Self.sig(recs))-\(limit)") { topGenresRaw(recs, limit: limit) }
+    }
+
+    func hourly(_ recs: [PlayRecord]) -> [Double] {
+        memo("hourly-\(Self.sig(recs))") { hourlyRaw(recs) }
+    }
+
+    func longestStreak(_ recs: [PlayRecord]) -> (days: Int, start: Date?) {
+        memo("longestStreak-\(Self.sig(recs))") { longestStreakRaw(recs) }
+    }
+
+    func biggestDay(_ recs: [PlayRecord]) -> (day: Date, seconds: Double, topSong: PlayRecord?)? {
+        memo("biggestDay-\(Self.sig(recs))") { biggestDayRaw(recs) }
+    }
     func firstPlayed(artist id: Int) -> Date? { records.first { r in r.allArtists.contains { $0.id == id } }?.start }
 
     struct ArtistStat: Identifiable, Hashable {
@@ -193,7 +249,7 @@ final class StatsStore {
         var id: Int { artist.id }
     }
 
-    func topArtists(_ recs: [PlayRecord], limit: Int = 10) -> [ArtistStat] {
+    private func topArtistsRaw(_ recs: [PlayRecord], limit: Int = 10) -> [ArtistStat] {
         var secs: [Int: Double] = [:], plays: [Int: Int] = [:], latest: [Int: Artist] = [:]
         for r in recs {
             for a in r.allArtists {
@@ -217,7 +273,7 @@ final class StatsStore {
         var id: Int { songID }
     }
 
-    func topSongs(_ recs: [PlayRecord], limit: Int = 10) -> [SongStat] {
+    private func topSongsRaw(_ recs: [PlayRecord], limit: Int = 10) -> [SongStat] {
         var groups: [Int: [PlayRecord]] = [:]
         for r in recs { groups[r.songID, default: []].append(r) }
         return groups.values.compactMap { g -> SongStat? in
@@ -229,7 +285,7 @@ final class StatsStore {
         .prefix(limit).map { $0 }
     }
 
-    func topGenres(_ recs: [PlayRecord], limit: Int = 5) -> [(name: String, share: Double)] {
+    private func topGenresRaw(_ recs: [PlayRecord], limit: Int = 5) -> [(name: String, share: Double)] {
         var secs: [String: Double] = [:]
         var total = 0.0
         for r in recs { if let g = r.genre, !g.isEmpty { secs[g, default: 0] += r.seconds; total += r.seconds } }
@@ -276,7 +332,7 @@ final class StatsStore {
     }
 
     /// Seconds listened per hour of the day (0-23).
-    func hourly(_ recs: [PlayRecord]) -> [Double] {
+    private func hourlyRaw(_ recs: [PlayRecord]) -> [Double] {
         var h = Array(repeating: 0.0, count: 24)
         let cal = Calendar.current
         for r in recs { h[cal.component(.hour, from: r.start)] += r.seconds }
@@ -284,7 +340,7 @@ final class StatsStore {
     }
 
     /// Longest run of consecutive days with music, and where it started.
-    func longestStreak(_ recs: [PlayRecord]) -> (days: Int, start: Date?) {
+    private func longestStreakRaw(_ recs: [PlayRecord]) -> (days: Int, start: Date?) {
         let cal = Calendar.current
         let days = Set(recs.map { cal.startOfDay(for: $0.start) }).sorted()
         var best = 0, bestStart: Date?, run = 0, runStart: Date?
@@ -340,7 +396,7 @@ final class StatsStore {
     }
 
     /// The day with the most listening.
-    func biggestDay(_ recs: [PlayRecord]) -> (day: Date, seconds: Double, topSong: PlayRecord?)? {
+    private func biggestDayRaw(_ recs: [PlayRecord]) -> (day: Date, seconds: Double, topSong: PlayRecord?)? {
         let cal = Calendar.current
         var groups: [Date: [PlayRecord]] = [:]
         for r in recs { groups[cal.startOfDay(for: r.start), default: []].append(r) }

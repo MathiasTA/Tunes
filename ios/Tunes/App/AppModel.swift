@@ -159,6 +159,43 @@ final class AppModel {
 
     @ObservationIgnored private var lastBadgeCheck = Date.distantPast
 
+    /// The app-wide look, fonts and sizes. Kept here so views only redraw when it actually changes.
+    var rootStyle: RootStyle?
+    /// Ticks every minute, so time-based themes (Horizon, seasons, moon) keep up.
+    var minute = Date.now
+    @ObservationIgnored private var minuteTimer: Timer?
+
+    func makeRootStyle() -> RootStyle {
+        let look = prefs.look(at: minute, cover: coverColors)
+        return RootStyle(look: look, font: prefs.data.font, scheme: prefs.colorScheme(for: look),
+                         textSize: prefs.data.textSize, animations: prefs.data.animations)
+    }
+
+    /// Works out the style and watches everything it depends on; when one of those changes it's worked out again,
+    /// and only stored (redrawing the app) if the result is different.
+    func trackRootStyle(again: Bool = false) {
+        if !again && minuteTimer != nil { return } // already watching
+        if minuteTimer == nil {
+            let t = Timer(timeInterval: 60, repeats: true) { _ in
+                MainActor.assumeIsolated { AppModel.shared.minute = .now }
+            }
+            RunLoop.main.add(t, forMode: .common)
+            minuteTimer = t
+            // The Battery theme follows charging, level and Low Power Mode right away.
+            let nc = NotificationCenter.default
+            for name in [UIDevice.batteryLevelDidChangeNotification, UIDevice.batteryStateDidChangeNotification,
+                         Notification.Name.NSProcessInfoPowerStateDidChange] {
+                nc.addObserver(forName: name, object: nil, queue: .main) { _ in
+                    MainActor.assumeIsolated { AppModel.shared.minute = .now }
+                }
+            }
+        }
+        let s = withObservationTracking { makeRootStyle() } onChange: {
+            Task { @MainActor in AppModel.shared.trackRootStyle(again: true) }
+        }
+        if s != rootStyle { rootStyle = s }
+    }
+
     /// Announces badges that just reached a new tier. The first check after updating is silent,
     /// so badges you'd already earned don't all pop up at once.
     func checkBadges(force: Bool = false) {

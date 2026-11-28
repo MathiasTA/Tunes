@@ -82,7 +82,15 @@ final class Library {
         var id: Int { artist.id }
     }
 
+    @ObservationIgnored private var artistsCache: (Int, [ArtistEntry])?
     var artists: [ArtistEntry] {
+        if let c = artistsCache, c.0 == version { return c.1 }
+        let v = computeArtists()
+        artistsCache = (version, v)
+        return v
+    }
+
+    private func computeArtists() -> [ArtistEntry] {
         var counts: [Int: (Artist, Int, Int)] = [:]
         for e in entries {
             for a in e.song.allArtists {
@@ -275,7 +283,8 @@ final class Library {
     }
 
     fileprivate func setProgress(_ id: Int, _ p: Double) {
-        if case .downloading = states[id] { states[id] = .downloading(p) }
+        // Only redraw for visible steps (2%), so a download doesn't redraw every list many times a second.
+        if case .downloading(let old) = states[id], p - old >= 0.02 || p >= 1 { states[id] = .downloading(p) }
     }
 
     /// Downloads again from a specific YouTube upload (used by "Wrong song? Change source").
